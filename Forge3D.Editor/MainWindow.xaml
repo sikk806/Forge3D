@@ -1,0 +1,388 @@
+<Window x:Class="Forge3D.Editor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        Title="Forge3D" Height="820" MinHeight="640" Width="1280" MinWidth="1040"
+        Background="#101316"
+        PreviewKeyDown="Window_PreviewKeyDown">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinWidth" Value="72"/>
+            <Setter Property="Background" Value="#24313A"/>
+            <Setter Property="Foreground" Value="#EEF4F5"/>
+            <Setter Property="BorderBrush" Value="#3E505B"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="ToggleButton">
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinWidth" Value="92"/>
+            <Setter Property="Background" Value="#24313A"/>
+            <Setter Property="Foreground" Value="#EEF4F5"/>
+            <Setter Property="BorderBrush" Value="#3E505B"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#DDE6E8"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Margin" Value="0,3"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Background" Value="#141B20"/>
+            <Setter Property="Foreground" Value="#F7FAFA"/>
+            <Setter Property="BorderBrush" Value="#344650"/>
+        </Style>
+        <Style TargetType="ListBox">
+            <Setter Property="Background" Value="#141B20"/>
+            <Setter Property="Foreground" Value="#F7FAFA"/>
+            <Setter Property="BorderBrush" Value="#2E3F48"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="#F0F6F7"/>
+            <Setter Property="BorderBrush" Value="#2E3F48"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#171E23" BorderBrush="#2B3942" BorderThickness="0,0,0,1" Padding="8">
+            <WrapPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                    <TextBlock Text="Simulation" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="Run" Command="{Binding RunCommand}"/>
+                    <Button Content="Pause" Command="{Binding PauseCommand}"/>
+                    <Button Content="Step" Command="{Binding StepCommand}"/>
+                    <Button Content="Reset" Command="{Binding ResetCommand}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                    <TextBlock Text="Create" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="Add Box" Command="{Binding AddBoxCommand}"/>
+                    <Button Content="Add Sphere" Command="{Binding AddSphereCommand}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                    <TextBlock Text="Debug" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <ToggleButton Content="Velocity" IsChecked="{Binding ShowVelocityDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="Contact" IsChecked="{Binding ShowContactDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="Normal" IsChecked="{Binding ShowNormalDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="Bounds" IsChecked="{Binding ShowBoundsDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="Sensor FOV" IsChecked="{Binding SensorFovDebug}" Click="DebugToggle_Click" MinWidth="104"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                    <TextBlock Text="Scenes" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="Drop" Command="{Binding DropDemoCommand}"/>
+                    <Button Content="Bounce" Command="{Binding BounceDemoCommand}"/>
+                    <Button Content="Friction" Command="{Binding FrictionDemoCommand}"/>
+                    <Button Content="Stack" Command="{Binding StackDemoCommand}"/>
+                    <Button Content="Engineering" Command="{Binding EngineeringScenarioCommand}" MinWidth="96"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Stress" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="100" Command="{Binding Stress100Command}"/>
+                    <Button Content="300" Command="{Binding Stress300Command}"/>
+                    <Button Content="500" Command="{Binding Stress500Command}"/>
+                </StackPanel>
+            </WrapPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Bottom" Background="#171E23" BorderBrush="#2B3942" BorderThickness="0,1,0,0" Padding="10">
+            <DockPanel>
+                <UniformGrid DockPanel.Dock="Top" Columns="11" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding Status, StringFormat=Status: {0}}"/>
+                    <TextBlock Text="{Binding Fps, StringFormat=FPS: {0:F0}}"/>
+                    <TextBlock Text="{Binding Stats.BodyCount, StringFormat=Bodies: {0}}"/>
+                    <TextBlock Text="{Binding Stats.ColliderCount, StringFormat=Colliders: {0}}"/>
+                    <TextBlock Text="{Binding Stats.PotentialPairCount, StringFormat=Total Pairs: {0}}"/>
+                    <TextBlock Text="{Binding Stats.CandidatePairCount, StringFormat=Candidates: {0}}"/>
+                    <TextBlock Text="{Binding Stats.ContactCount, StringFormat=Contacts: {0}}"/>
+                    <TextBlock Text="{Binding Stats.BroadPhaseTime.TotalMilliseconds, StringFormat=Broad: {0:F3} ms}"/>
+                    <TextBlock Text="{Binding Stats.NarrowPhaseTime.TotalMilliseconds, StringFormat=Narrow: {0:F3} ms}"/>
+                    <TextBlock Text="{Binding Stats.SolverTime.TotalMilliseconds, StringFormat=Solver: {0:F3} ms}"/>
+                    <TextBlock Text="{Binding Stats.TotalPhysicsTime.TotalMilliseconds, StringFormat=Physics: {0:F3} ms}"/>
+                </UniformGrid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="320"/>
+                    </Grid.ColumnDefinitions>
+                    <Canvas x:Name="GraphCanvas" Height="110" Background="#10161A" SizeChanged="GraphCanvas_SizeChanged"/>
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                        <TextBlock Text="Replay / Timeline" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox Content="Record" Foreground="#DDE6E8" IsChecked="{Binding IsRecording}"/>
+                            <CheckBox Content="Replay" Foreground="#DDE6E8" IsChecked="{Binding IsReplayMode}" Margin="12,0,0,0"/>
+                            <Button Content="Clear" Command="{Binding ClearReplayCommand}" MinWidth="58"/>
+                        </StackPanel>
+                        <Slider Minimum="0" Maximum="{Binding ReplayFrameCount}" Value="{Binding TimelineValue}" TickFrequency="1"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Speed"/>
+                            <Slider Width="170" Minimum="0.5" Maximum="2" TickFrequency="0.5" IsSnapToTickEnabled="True" Value="{Binding ReplaySpeed}" Margin="8,0,0,0"/>
+                            <TextBlock Text="{Binding ReplaySpeed, StringFormat={}{0:F1}x}" Margin="8,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </DockPanel>
+        </Border>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="230"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="300"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="#12181D" BorderBrush="#2B3942" BorderThickness="0,0,1,0" Padding="10">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Scene Hierarchy" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <StackPanel>
+                        <TextBlock Text="Physics Bodies" Foreground="#8FADB8" Margin="0,0,0,4"/>
+                        <ListBox Height="230" ItemsSource="{Binding Objects}" SelectedItem="{Binding SelectedObject}" SelectionChanged="ObjectsList_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="2,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Type}" Foreground="#8FADB8"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <TextBlock Text="Simulation Entities" Foreground="#8FADB8" Margin="0,10,0,4"/>
+                        <ListBox Height="250" ItemsSource="{Binding Entities}" SelectedItem="{Binding SelectedEntity}" SelectionChanged="EntitiesList_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding DisplayName}" Margin="2,4"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <Border x:Name="ViewportHost"
+                    Grid.Column="1"
+                    Background="#0B0F12"
+                    Focusable="True"
+                    PreviewMouseDown="ViewportHost_PreviewMouseDown"
+                    PreviewMouseMove="ViewportHost_PreviewMouseMove"
+                    PreviewMouseUp="ViewportHost_PreviewMouseUp"
+                    PreviewMouseWheel="ViewportHost_PreviewMouseWheel">
+                <Viewport3D x:Name="Viewport" ClipToBounds="True">
+                    <Viewport3D.Camera>
+                        <PerspectiveCamera x:Name="Camera" Position="6,6,10" LookDirection="-6,-5,-10" UpDirection="0,1,0" FieldOfView="52"/>
+                    </Viewport3D.Camera>
+                    <ModelVisual3D>
+                        <ModelVisual3D.Content>
+                            <Model3DGroup>
+                                <AmbientLight Color="#606A70"/>
+                                <DirectionalLight Color="#FFFFFF" Direction="-1,-2,-3"/>
+                                <DirectionalLight Color="#7FA7FF" Direction="3,-2,2"/>
+                            </Model3DGroup>
+                        </ModelVisual3D.Content>
+                    </ModelVisual3D>
+                    <ModelVisual3D x:Name="SceneRoot"/>
+                    <ModelVisual3D x:Name="DebugRoot"/>
+                </Viewport3D>
+            </Border>
+
+            <Border Grid.Column="2" Background="#12181D" BorderBrush="#2B3942" BorderThickness="1,0,0,0" Padding="10">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Inspector" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding SelectedObject.Name, TargetNullValue=No selection}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
+
+                        <GroupBox Header="Transform">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="X"/>
+                                <TextBox Grid.Column="1" Text="{Binding SelectedObject.PositionX, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Row="1" Text="Y"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedObject.PositionY, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Row="2" Text="Z"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedObject.PositionZ, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Rotation">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="X"/>
+                                <TextBox Grid.Column="1" Text="{Binding SelectedObject.RotationX, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
+                                <TextBlock Grid.Row="1" Text="Y"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedObject.RotationY, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
+                                <TextBlock Grid.Row="2" Text="Z"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedObject.RotationZ, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Physics">
+                            <StackPanel>
+                                <CheckBox Content="Static" Foreground="#DDE6E8" IsChecked="{Binding SelectedObject.IsStatic}"/>
+                                <TextBlock Text="Mass"/>
+                                <TextBox Text="{Binding SelectedObject.Mass, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Text="Friction"/>
+                                <TextBox Text="{Binding SelectedObject.Friction, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Text="Restitution"/>
+                                <TextBox Text="{Binding SelectedObject.Restitution, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Text="Linear Damping"/>
+                                <TextBox Text="{Binding SelectedObject.LinearDamping, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Text="Angular Damping"/>
+                                <TextBox Text="{Binding SelectedObject.AngularDamping, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Velocity">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="34"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="34"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                    <RowDefinition/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="LX"/>
+                                <TextBox Grid.Column="1" Text="{Binding SelectedObject.LinearVelocityX, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Column="2" Text="AX"/>
+                                <TextBox Grid.Column="3" Text="{Binding SelectedObject.AngularVelocityX, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Row="1" Text="LY"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding SelectedObject.LinearVelocityY, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="AY"/>
+                                <TextBox Grid.Row="1" Grid.Column="3" Text="{Binding SelectedObject.AngularVelocityY, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Row="2" Text="LZ"/>
+                                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding SelectedObject.LinearVelocityZ, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="2" Text="AZ"/>
+                                <TextBox Grid.Row="2" Grid.Column="3" Text="{Binding SelectedObject.AngularVelocityZ, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                            </Grid>
+                        </GroupBox>
+
+                        <GroupBox Header="Diagnostics">
+                            <StackPanel>
+                                <TextBlock Text="{Binding SelectedObject.CenterOfMass, StringFormat=Center: {0}}"/>
+                                <TextBlock Text="{Binding SelectedObject.SleepState, StringFormat=State: {0}}"/>
+                                <TextBlock Text="{Binding SelectedObject.CurrentSpeed, StringFormat=Speed: {0:F2}}"/>
+                                <TextBlock Text="{Binding SelectedObject.AngularSpeed, StringFormat=Angular: {0:F2}}"/>
+                                <TextBlock Text="{Binding SelectedObject.KineticEnergy, StringFormat=Energy: {0:F2}}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Actions">
+                            <StackPanel>
+                                <TextBlock Text="Force"/>
+                                <UniformGrid Columns="3">
+                                    <TextBox Text="{Binding ForceX, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding ForceY, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding ForceZ, UpdateSourceTrigger=PropertyChanged}"/>
+                                </UniformGrid>
+                                <Button Content="Apply Force" Command="{Binding ApplyForceCommand}"/>
+                                <TextBlock Text="Torque"/>
+                                <UniformGrid Columns="3">
+                                    <TextBox Text="{Binding TorqueX, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding TorqueY, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding TorqueZ, UpdateSourceTrigger=PropertyChanged}"/>
+                                </UniformGrid>
+                                <Button Content="Apply Torque" Command="{Binding ApplyTorqueCommand}"/>
+                                <TextBlock Text="Impulse"/>
+                                <UniformGrid Columns="3">
+                                    <TextBox Text="{Binding ImpulseX, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding ImpulseY, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding ImpulseZ, UpdateSourceTrigger=PropertyChanged}"/>
+                                </UniformGrid>
+                                <Button Content="Apply Impulse" Command="{Binding ApplyImpulseCommand}"/>
+                                <TextBlock Text="Application Point"/>
+                                <UniformGrid Columns="3">
+                                    <TextBox Text="{Binding PointX, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding PointY, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBox Text="{Binding PointZ, UpdateSourceTrigger=PropertyChanged}"/>
+                                </UniformGrid>
+                                <Button Content="Apply Impulse At Point" Command="{Binding ApplyImpulseAtPointCommand}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Contacts">
+                            <ListBox ItemsSource="{Binding ContactDetails}" MaxHeight="150"/>
+                        </GroupBox>
+
+                        <GroupBox Header="Vehicle Control">
+                            <StackPanel>
+                                <TextBlock Text="Target Speed"/>
+                                <TextBox Text="{Binding TargetSpeed, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <TextBlock Text="Target Heading"/>
+                                <TextBox Text="{Binding TargetHeading, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
+                                <WrapPanel>
+                                    <Button Content="Start Mission" Command="{Binding StartMissionCommand}" MinWidth="106"/>
+                                    <Button Content="Stop" Command="{Binding StopVehicleCommand}"/>
+                                    <Button Content="Emergency" Command="{Binding EmergencyStopCommand}" MinWidth="96"/>
+                                </WrapPanel>
+                                <WrapPanel>
+                                    <Button Content="Pause" Command="{Binding PauseMissionCommand}"/>
+                                    <Button Content="Resume" Command="{Binding ResumeMissionCommand}"/>
+                                    <Button Content="Abort" Command="{Binding AbortMissionCommand}"/>
+                                    <Button Content="Reset" Command="{Binding ResetMissionCommand}"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Telemetry / Safety">
+                            <StackPanel>
+                                <TextBlock Text="{Binding MissionState, StringFormat=Mission: {0}}"/>
+                                <TextBlock Text="{Binding CurrentWaypointName, StringFormat=Waypoint: {0}}"/>
+                                <TextBlock Text="{Binding MissionProgress, StringFormat=Progress: {0:F0}%}"/>
+                                <TextBlock Text="{Binding DistanceToWaypoint, StringFormat=Distance: {0}}"/>
+                                <TextBlock Text="{Binding SafetyState, StringFormat=Safety: {0}}"/>
+                                <TextBlock Text="{Binding SafetyTarget, StringFormat=Target: {0}}"/>
+                                <TextBlock Text="{Binding SafetyDistance, StringFormat=Obstacle Distance: {0}}"/>
+                                <TextBlock Text="{Binding TimeToCollision, StringFormat=TTC: {0}}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Detections">
+                            <ListBox ItemsSource="{Binding DetectionDetails}" MaxHeight="130"/>
+                        </GroupBox>
+
+                        <GroupBox Header="Fault Injection">
+                            <WrapPanel>
+                                <Button Content="Sensor Failure" Command="{Binding SensorFaultCommand}" MinWidth="118"/>
+                                <Button Content="Wheel Slip" Command="{Binding WheelSlipCommand}" MinWidth="96"/>
+                                <Button Content="Motor Degrade" Command="{Binding MotorDegradationCommand}" MinWidth="118"/>
+                                <Button Content="Comm Loss" Command="{Binding CommunicationLossCommand}" MinWidth="100"/>
+                                <Button Content="Clear Faults" Command="{Binding ClearFaultsCommand}" MinWidth="104"/>
+                            </WrapPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="Events / Alarms">
+                            <ListBox ItemsSource="{Binding EventLog}" MaxHeight="180"/>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>

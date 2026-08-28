@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build"],
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
+      "label": "test",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "Forge3D.Tests/Forge3D.Tests.csproj"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "run editor",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "Forge3D.Editor"],
+      "problemMatcher": "$msCompile",
+      "group": "none"
+    }
+  ]
+}
