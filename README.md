@@ -12,8 +12,6 @@ Forge3D의 물리 코어는 WPF와 분리된 독립 라이브러리로 설계하
 
 # 현재 구현 상태
 
-현재 저장소에는 2주 MVP 기준의 실행 가능한 기본 버전이 구현되어 있습니다.
-
 ```text
 Forge3D.Core
 
@@ -818,64 +816,6 @@ TCP / UDP
 Sensor Simulation
 Digital Twin Scenario
 ```
-
----
-
-# 적용 가능한 영역
-
-Forge3D는 게임 전용 물리엔진이 아니라, 엔지니어링 시뮬레이션을 염두에 둔 프로젝트입니다.
-
-## 방산
-
-```text
-무인체계 Simulation
-Mission Simulation
-플랫폼 상태 시각화
-Control System Visualization
-```
-
-## 산업 자동화
-
-```text
-Equipment Digital Twin
-Robot Motion Simulation
-Collision Verification
-Engineering Tool
-```
-
-## 반도체 장비
-
-```text
-Mechanism Simulation
-Equipment Visualization
-Motion Debugging
-```
-
-## 의료기기 / 의료로봇
-
-```text
-3D Mechanism Visualization
-Robot Simulation
-Engineering Analysis Tool
-```
-
----
-
-# 이 프로젝트가 목표로 하지 않는 것
-
-Forge3D는 다음을 목표로 하지 않습니다.
-
-- PhysX 대체
-- Bullet 대체
-- Unity 대체
-- 완전한 Game Engine
-- 상용 CAD
-- 고정밀 FEM Solver
-- 사실적인 Rendering Engine
-
-목표는 **실시간 3D 강체 물리 시뮬레이션의 핵심 구조와 알고리즘을 직접 구현하고, 이를 분석할 수 있는 엔지니어링 도구를 완성하는 것**입니다.
-
----
 
 # 주요 기술 키워드
 
