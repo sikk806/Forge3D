@@ -13,6 +13,7 @@ public sealed class PhysicsWorld
     private readonly List<Collider> _colliders = [];
     private readonly List<Contact> _contacts = [];
     private readonly CollisionDispatcher _collisionDispatcher = new();
+    private readonly IBroadPhase _broadPhase;
     private readonly IContactSolver _contactSolver;
 
     public PhysicsWorld()
@@ -26,9 +27,15 @@ public sealed class PhysicsWorld
     }
 
     public PhysicsWorld(PhysicsSettings settings, IContactSolver contactSolver)
+        : this(settings, contactSolver, new AabbBroadPhase())
+    {
+    }
+
+    public PhysicsWorld(PhysicsSettings settings, IContactSolver contactSolver, IBroadPhase broadPhase)
     {
         Settings = settings;
         _contactSolver = contactSolver;
+        _broadPhase = broadPhase;
     }
 
     public PhysicsSettings Settings { get; }
@@ -148,57 +155,26 @@ public sealed class PhysicsWorld
     private CollisionPairStats GenerateContacts()
     {
         _contacts.Clear();
-        var broadPhaseStopwatch = Stopwatch.StartNew();
-        var bounds = new AabbCache[_colliders.Count];
-
-        for (var i = 0; i < _colliders.Count; i++)
-        {
-            var collider = _colliders[i];
-            bounds[i] = new AabbCache(collider is PlaneCollider, collider.ComputeBounds());
-        }
-        broadPhaseStopwatch.Stop();
-
-        var potentialPairs = 0;
-        var candidatePairs = 0;
+        var broadPhaseResult = _broadPhase.FindPairs(_colliders);
         var narrowPhaseTime = TimeSpan.Zero;
 
-        for (var i = 0; i < _colliders.Count; i++)
+        foreach (var pair in broadPhaseResult.CandidatePairs)
         {
-            for (var j = i + 1; j < _colliders.Count; j++)
+            var narrowStopwatch = Stopwatch.StartNew();
+            if (_collisionDispatcher.TryGenerateContact(pair.ColliderA, pair.ColliderB, out var contact))
             {
-                var colliderA = _colliders[i];
-                var colliderB = _colliders[j];
-
-                if (ReferenceEquals(colliderA.Body, colliderB.Body)
-                    || (colliderA.Body.IsStatic && colliderB.Body.IsStatic))
-                {
-                    continue;
-                }
-
-                potentialPairs++;
-
-                if (!bounds[i].IsPlane
-                    && !bounds[j].IsPlane
-                    && !bounds[i].Bounds.Intersects(bounds[j].Bounds))
-                {
-                    continue;
-                }
-
-                candidatePairs++;
-                var narrowStopwatch = Stopwatch.StartNew();
-                if (_collisionDispatcher.TryGenerateContact(colliderA, colliderB, out var contact))
-                {
-                    _contacts.Add(contact);
-                }
-                narrowStopwatch.Stop();
-                narrowPhaseTime += narrowStopwatch.Elapsed;
+                _contacts.Add(contact);
             }
+            narrowStopwatch.Stop();
+            narrowPhaseTime += narrowStopwatch.Elapsed;
         }
 
-        return new CollisionPairStats(potentialPairs, candidatePairs, broadPhaseStopwatch.Elapsed, narrowPhaseTime);
+        return new CollisionPairStats(
+            broadPhaseResult.PotentialPairCount,
+            broadPhaseResult.CandidatePairs.Count,
+            broadPhaseResult.Elapsed,
+            narrowPhaseTime);
     }
-
-    private readonly record struct AabbCache(bool IsPlane, Mathematics.Aabb Bounds);
 
     private readonly record struct CollisionPairStats(
         int PotentialPairs,

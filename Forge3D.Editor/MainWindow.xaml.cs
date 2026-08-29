@@ -3,11 +3,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
-using System.Windows.Shapes;
 using Forge3D.Core.Collision;
-using Forge3D.Core.Simulation;
-using Forge3D.Core.Simulation.Sensors;
+using Forge3D.Editor.Input;
+using Forge3D.Editor.Rendering;
 using Forge3D.Editor.ViewModels;
+using Microsoft.Win32;
 using MediaColor = System.Windows.Media.Color;
 using NumericsQuaternion = System.Numerics.Quaternion;
 using Vector3 = System.Numerics.Vector3;
@@ -16,10 +16,10 @@ namespace Forge3D.Editor;
 
 public partial class MainWindow : Window
 {
-    private const int MaxDebugBodies = 120;
-    private const int MaxDebugContacts = 80;
-
     private readonly MainViewModel _viewModel;
+    private readonly TelemetryGraphRenderer _graphRenderer = new();
+    private readonly DebugRenderer _debugRenderer = new();
+    private readonly CameraController _cameraController;
     private readonly Dictionary<int, RenderEntry> _modelsByColliderId = [];
     private readonly Dictionary<ModelUIElement3D, int> _colliderIdsByModel = [];
     private readonly Dictionary<ModelUIElement3D, Vector3> _moveAxesByHandle = [];
@@ -36,15 +36,12 @@ public partial class MainWindow : Window
     private Vector3 _moveStartCameraUp;
     private float _moveStartDepth;
     private Point _moveStartMousePosition;
-    private double _yaw = -30.0;
-    private double _pitch = 28.0;
-    private double _distance = 13.0;
-    private Vector3 _cameraTarget = new(0.0f, 1.5f, 0.0f);
 
     public MainWindow()
     {
         InitializeComponent();
         _viewModel = new MainViewModel();
+        _cameraController = new CameraController(Camera);
         DataContext = _viewModel;
 
         _viewModel.SceneChanged += (_, _) => RebuildScene();
@@ -53,7 +50,6 @@ public partial class MainWindow : Window
             SyncScene();
             DrawGraph();
         };
-        UpdateCamera();
         RebuildScene();
         DrawGraph();
     }
@@ -100,9 +96,9 @@ public partial class MainWindow : Window
     {
         var model = collider switch
         {
-            SphereCollider sphere => CreateSphere(Vector3.Zero, sphere.Radius, Colors.DeepSkyBlue),
-            BoxCollider box => CreateBox(Vector3.Zero, box.HalfExtents, Colors.LightSteelBlue),
-            PlaneCollider => CreatePlane(MediaColor.FromRgb(58, 66, 58)),
+            SphereCollider sphere => MeshFactory.CreateSphere(Vector3.Zero, sphere.Radius, Colors.DeepSkyBlue),
+            BoxCollider box => MeshFactory.CreateBox(Vector3.Zero, box.HalfExtents, Colors.LightSteelBlue),
+            PlaneCollider => MeshFactory.CreatePlane(MediaColor.FromRgb(58, 66, 58)),
             _ => new GeometryModel3D()
         };
 
@@ -115,7 +111,7 @@ public partial class MainWindow : Window
 
     private static void UpdateRenderEntry(RenderEntry entry, bool selected)
     {
-        entry.Model.Material = CreateMaterial(GetColor(entry.Collider, selected));
+        entry.Model.Material = MeshFactory.CreateMaterial(GetColor(entry.Collider, selected));
         entry.Model.BackMaterial = entry.Model.Material;
         entry.Model.Transform = CreateTransform(entry.Collider);
     }
@@ -186,8 +182,8 @@ public partial class MainWindow : Window
         var start = origin + axis * 0.45f;
         var end = origin + axis * length;
         var group = new Model3DGroup();
-        group.Children.Add(CreateLine(start, end, color, 0.075f));
-        group.Children.Add(CreateSphere(end, 0.22f, color));
+        group.Children.Add(MeshFactory.CreateLine(start, end, color, 0.075f));
+        group.Children.Add(MeshFactory.CreateSphere(end, 0.22f, color));
 
         var handle = new ModelUIElement3D { Model = group };
         handle.MouseDown += MoveHandle_MouseDown;
@@ -198,80 +194,7 @@ public partial class MainWindow : Window
     private void RebuildDebug()
     {
         DebugRoot.Children.Clear();
-
-        var debugGroup = new Model3DGroup();
-
-        if (_viewModel.ShowVelocityDebug)
-        {
-            foreach (var item in _viewModel.Objects.Where(item => !item.Body.IsStatic).Take(MaxDebugBodies))
-            {
-                var start = item.Body.Position;
-                var velocity = item.Body.LinearVelocity;
-                if (velocity.LengthSquared() > 0.01f)
-                {
-                    debugGroup.Children.Add(CreateLine(start, start + Vector3.Normalize(velocity) * MathF.Min(velocity.Length() * 0.15f, 1.5f), Colors.Cyan, 0.025f));
-                }
-            }
-        }
-
-        if (_viewModel.ShowContactDebug || _viewModel.ShowNormalDebug)
-        {
-            foreach (var contact in _viewModel.World.Contacts.Take(MaxDebugContacts))
-            {
-                if (_viewModel.ShowContactDebug)
-                {
-                    debugGroup.Children.Add(CreateSphere(contact.Point, 0.07f, Colors.OrangeRed));
-                }
-
-                if (_viewModel.ShowNormalDebug)
-                {
-                    debugGroup.Children.Add(CreateLine(contact.Point, contact.Point + contact.Normal * 0.75f, Colors.LimeGreen, 0.03f));
-                }
-            }
-        }
-
-        if (_viewModel.ShowBoundsDebug)
-        {
-            foreach (var item in _viewModel.Objects.Where(item => item.Collider is not PlaneCollider).Take(MaxDebugBodies))
-            {
-                AddBounds(debugGroup, item.Collider.ComputeBounds());
-            }
-        }
-
-        AddEngineeringVisualization(debugGroup);
-        DebugRoot.Children.Add(new ModelVisual3D { Content = debugGroup });
-    }
-
-    private void AddEngineeringVisualization(Model3DGroup group)
-    {
-        var waypoints = _viewModel.Waypoints.ToList();
-        for (var i = 0; i < waypoints.Count; i++)
-        {
-            var waypoint = waypoints[i];
-            var color = waypoint.IsReached ? Colors.LightGreen : Colors.Yellow;
-            group.Children.Add(CreateSphere(waypoint.Position + new Vector3(0.0f, 0.18f, 0.0f), 0.18f, color));
-
-            if (i > 0)
-            {
-                group.Children.Add(CreateLine(waypoints[i - 1].Position + new Vector3(0.0f, 0.12f, 0.0f), waypoint.Position + new Vector3(0.0f, 0.12f, 0.0f), Colors.Yellow, 0.025f));
-            }
-        }
-
-        if (_viewModel.SensorFovDebug && _viewModel.Sensor is { State: not SensorState.Fault and not SensorState.Offline } sensor)
-        {
-            var origin = sensor.Owner.Position + new Vector3(0.0f, 0.35f, 0.0f);
-            var forward = Vector3.Normalize(Vector3.Transform(Vector3.UnitZ, sensor.Owner.Orientation));
-            var left = RotateAroundY(forward, -sensor.FieldOfViewDegrees * 0.5f);
-            var right = RotateAroundY(forward, sensor.FieldOfViewDegrees * 0.5f);
-            group.Children.Add(CreateLine(origin, origin + left * sensor.Range, MediaColor.FromRgb(120, 220, 255), 0.02f));
-            group.Children.Add(CreateLine(origin, origin + forward * sensor.Range, MediaColor.FromRgb(80, 180, 230), 0.015f));
-            group.Children.Add(CreateLine(origin, origin + right * sensor.Range, MediaColor.FromRgb(120, 220, 255), 0.02f));
-        }
-    }
-
-    private static Vector3 RotateAroundY(Vector3 vector, float degrees)
-    {
-        return Vector3.Normalize(Vector3.Transform(vector, NumericsQuaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180.0f)));
+        DebugRoot.Children.Add(new ModelVisual3D { Content = _debugRenderer.Build(_viewModel) });
     }
 
     private void AddGrid()
@@ -281,155 +204,11 @@ public partial class MainWindow : Window
 
         for (var i = -10; i <= 10; i++)
         {
-            grid.Children.Add(CreateLine(new Vector3(i, 0.002f, -10), new Vector3(i, 0.002f, 10), color, 0.008f));
-            grid.Children.Add(CreateLine(new Vector3(-10, 0.002f, i), new Vector3(10, 0.002f, i), color, 0.008f));
+            grid.Children.Add(MeshFactory.CreateLine(new Vector3(i, 0.002f, -10), new Vector3(i, 0.002f, 10), color, 0.008f));
+            grid.Children.Add(MeshFactory.CreateLine(new Vector3(-10, 0.002f, i), new Vector3(10, 0.002f, i), color, 0.008f));
         }
 
         SceneRoot.Children.Add(new ModelVisual3D { Content = grid });
-    }
-
-    private static GeometryModel3D CreateSphere(Vector3 center, float radius, MediaColor color)
-    {
-        const int thetaSegments = 12;
-        const int phiSegments = 6;
-
-        var mesh = new MeshGeometry3D();
-
-        for (var phi = 0; phi <= phiSegments; phi++)
-        {
-            var v = phi / (double)phiSegments;
-            var phiAngle = Math.PI * v;
-
-            for (var theta = 0; theta <= thetaSegments; theta++)
-            {
-                var u = theta / (double)thetaSegments;
-                var thetaAngle = Math.PI * 2.0 * u;
-                var x = radius * Math.Sin(phiAngle) * Math.Cos(thetaAngle);
-                var y = radius * Math.Cos(phiAngle);
-                var z = radius * Math.Sin(phiAngle) * Math.Sin(thetaAngle);
-                mesh.Positions.Add(ToPoint3D(center + new Vector3((float)x, (float)y, (float)z)));
-                mesh.Normals.Add(new Vector3D(x, y, z));
-            }
-        }
-
-        for (var phi = 0; phi < phiSegments; phi++)
-        {
-            for (var theta = 0; theta < thetaSegments; theta++)
-            {
-                var first = phi * (thetaSegments + 1) + theta;
-                var second = first + thetaSegments + 1;
-                mesh.TriangleIndices.Add(first);
-                mesh.TriangleIndices.Add(second);
-                mesh.TriangleIndices.Add(first + 1);
-                mesh.TriangleIndices.Add(second);
-                mesh.TriangleIndices.Add(second + 1);
-                mesh.TriangleIndices.Add(first + 1);
-            }
-        }
-
-        mesh.Freeze();
-        return new GeometryModel3D(mesh, CreateMaterial(color));
-    }
-
-    private static GeometryModel3D CreateBox(Vector3 center, Vector3 halfExtents, MediaColor color)
-    {
-        var min = center - halfExtents;
-        var max = center + halfExtents;
-        var points = new[]
-        {
-            new Vector3(min.X, min.Y, min.Z), new Vector3(max.X, min.Y, min.Z),
-            new Vector3(max.X, max.Y, min.Z), new Vector3(min.X, max.Y, min.Z),
-            new Vector3(min.X, min.Y, max.Z), new Vector3(max.X, min.Y, max.Z),
-            new Vector3(max.X, max.Y, max.Z), new Vector3(min.X, max.Y, max.Z)
-        };
-
-        var mesh = new MeshGeometry3D();
-        foreach (var point in points)
-        {
-            mesh.Positions.Add(ToPoint3D(point));
-        }
-
-        AddFace(mesh, 0, 1, 2, 3);
-        AddFace(mesh, 5, 4, 7, 6);
-        AddFace(mesh, 4, 0, 3, 7);
-        AddFace(mesh, 1, 5, 6, 2);
-        AddFace(mesh, 3, 2, 6, 7);
-        AddFace(mesh, 4, 5, 1, 0);
-
-        mesh.Freeze();
-        return new GeometryModel3D(mesh, CreateMaterial(color));
-    }
-
-    private static GeometryModel3D CreatePlane(MediaColor color)
-    {
-        var mesh = new MeshGeometry3D();
-        mesh.Positions.Add(new Point3D(-12.0, 0.0, -12.0));
-        mesh.Positions.Add(new Point3D(12.0, 0.0, -12.0));
-        mesh.Positions.Add(new Point3D(12.0, 0.0, 12.0));
-        mesh.Positions.Add(new Point3D(-12.0, 0.0, 12.0));
-        AddFace(mesh, 0, 1, 2, 3);
-        mesh.Freeze();
-        return new GeometryModel3D(mesh, CreateMaterial(color));
-    }
-
-    private static GeometryModel3D CreateLine(Vector3 start, Vector3 end, MediaColor color, float thickness)
-    {
-        var direction = end - start;
-        if (direction.LengthSquared() <= 0.000001f)
-        {
-            direction = Vector3.UnitY * 0.001f;
-        }
-
-        var normalized = Vector3.Normalize(direction);
-        var up = Math.Abs(Vector3.Dot(normalized, Vector3.UnitY)) > 0.95f ? Vector3.UnitX : Vector3.UnitY;
-        var side = Vector3.Normalize(Vector3.Cross(direction, up)) * thickness;
-        var lift = Vector3.Normalize(Vector3.Cross(side, direction)) * thickness;
-
-        var mesh = new MeshGeometry3D();
-        var points = new[]
-        {
-            start - side - lift, start + side - lift, start + side + lift, start - side + lift,
-            end - side - lift, end + side - lift, end + side + lift, end - side + lift
-        };
-
-        foreach (var point in points)
-        {
-            mesh.Positions.Add(ToPoint3D(point));
-        }
-
-        AddFace(mesh, 0, 1, 2, 3);
-        AddFace(mesh, 5, 4, 7, 6);
-        AddFace(mesh, 4, 0, 3, 7);
-        AddFace(mesh, 1, 5, 6, 2);
-        AddFace(mesh, 3, 2, 6, 7);
-        AddFace(mesh, 4, 5, 1, 0);
-
-        mesh.Freeze();
-        return new GeometryModel3D(mesh, CreateMaterial(color));
-    }
-
-    private static void AddFace(MeshGeometry3D mesh, int a, int b, int c, int d)
-    {
-        mesh.TriangleIndices.Add(a);
-        mesh.TriangleIndices.Add(b);
-        mesh.TriangleIndices.Add(c);
-        mesh.TriangleIndices.Add(a);
-        mesh.TriangleIndices.Add(c);
-        mesh.TriangleIndices.Add(d);
-    }
-
-    private static Material CreateMaterial(MediaColor color)
-    {
-        var brush = new SolidColorBrush(color);
-        brush.Freeze();
-        Material material = new DiffuseMaterial(brush);
-        material.Freeze();
-        return material;
-    }
-
-    private static Point3D ToPoint3D(Vector3 vector)
-    {
-        return new Point3D(vector.X, vector.Y, vector.Z);
     }
 
     private static System.Windows.Media.Media3D.Quaternion ToMediaQuaternion(NumericsQuaternion quaternion)
@@ -465,6 +244,34 @@ public partial class MainWindow : Window
     private void DebugToggle_Click(object sender, RoutedEventArgs e)
     {
         RebuildDebug();
+    }
+
+    private void SettingsMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var window = new SettingsWindow
+        {
+            Owner = this,
+            DataContext = _viewModel
+        };
+        window.ShowDialog();
+    }
+
+    private void ImportDataMenu_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Data files (*.csv;*.json)|*.csv;*.json|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            _viewModel.DataImportPath = dialog.FileName;
+            if (_viewModel.ImportDataCommand.CanExecute(null))
+            {
+                _viewModel.ImportDataCommand.Execute(null);
+            }
+        }
     }
 
     private void GraphCanvas_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -533,22 +340,16 @@ public partial class MainWindow : Window
 
         if (_isOrbiting)
         {
-            _yaw += delta.X * 0.35;
-            _pitch = Math.Clamp(_pitch - delta.Y * 0.35, -80.0, 80.0);
+            _cameraController.Orbit(delta);
         }
         else if (_isPanning)
         {
-            var right = Vector3.Normalize(Vector3.Cross(GetCameraForward(), Vector3.UnitY));
-            var up = Vector3.Normalize(Vector3.Cross(right, GetCameraForward()));
-            _cameraTarget -= right * (float)(delta.X * 0.02);
-            _cameraTarget += up * (float)(delta.Y * 0.02);
+            _cameraController.Pan(delta);
         }
         else if (_isZooming)
         {
-            _distance = Math.Clamp(_distance * (1.0 + delta.Y * 0.01), 3.0, 40.0);
+            _cameraController.ZoomByDrag(delta);
         }
-
-        UpdateCamera();
         e.Handled = true;
     }
 
@@ -571,66 +372,8 @@ public partial class MainWindow : Window
 
     private void ViewportHost_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        _distance = Math.Clamp(_distance * (e.Delta > 0 ? 0.9 : 1.1), 3.0, 40.0);
-        UpdateCamera();
+        _cameraController.ZoomByWheel(e.Delta);
         e.Handled = true;
-    }
-
-    private void UpdateCamera()
-    {
-        var yawRadians = Math.PI * _yaw / 180.0;
-        var pitchRadians = Math.PI * _pitch / 180.0;
-        var x = _distance * Math.Cos(pitchRadians) * Math.Sin(yawRadians);
-        var y = _distance * Math.Sin(pitchRadians);
-        var z = _distance * Math.Cos(pitchRadians) * Math.Cos(yawRadians);
-        var position = _cameraTarget + new Vector3((float)x, (float)y, (float)z);
-
-        Camera.Position = ToPoint3D(position);
-        Camera.LookDirection = ToVector3D(_cameraTarget - position);
-        Camera.UpDirection = new Vector3D(0.0, 1.0, 0.0);
-    }
-
-    private Vector3 GetCameraForward()
-    {
-        var direction = _cameraTarget - new Vector3((float)Camera.Position.X, (float)Camera.Position.Y, (float)Camera.Position.Z);
-        return Vector3.Normalize(direction);
-    }
-
-    private static Vector3D ToVector3D(Vector3 vector)
-    {
-        return new Vector3D(vector.X, vector.Y, vector.Z);
-    }
-
-    private static void AddBounds(Model3DGroup group, Core.Mathematics.Aabb bounds)
-    {
-        var min = bounds.Min;
-        var max = bounds.Max;
-        var p = new[]
-        {
-            new Vector3(min.X, min.Y, min.Z), new Vector3(max.X, min.Y, min.Z),
-            new Vector3(max.X, max.Y, min.Z), new Vector3(min.X, max.Y, min.Z),
-            new Vector3(min.X, min.Y, max.Z), new Vector3(max.X, min.Y, max.Z),
-            new Vector3(max.X, max.Y, max.Z), new Vector3(min.X, max.Y, max.Z)
-        };
-
-        var color = MediaColor.FromRgb(255, 230, 120);
-        AddEdge(group, p[0], p[1], color);
-        AddEdge(group, p[1], p[2], color);
-        AddEdge(group, p[2], p[3], color);
-        AddEdge(group, p[3], p[0], color);
-        AddEdge(group, p[4], p[5], color);
-        AddEdge(group, p[5], p[6], color);
-        AddEdge(group, p[6], p[7], color);
-        AddEdge(group, p[7], p[4], color);
-        AddEdge(group, p[0], p[4], color);
-        AddEdge(group, p[1], p[5], color);
-        AddEdge(group, p[2], p[6], color);
-        AddEdge(group, p[3], p[7], color);
-    }
-
-    private static void AddEdge(Model3DGroup group, Vector3 a, Vector3 b, MediaColor color)
-    {
-        group.Children.Add(CreateLine(a, b, color, 0.012f));
     }
 
     private void MoveHandle_MouseDown(object sender, MouseButtonEventArgs e)
@@ -721,10 +464,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var cameraPosition = new Vector3((float)Camera.Position.X, (float)Camera.Position.Y, (float)Camera.Position.Z);
-        var forward = GetCameraForward();
-        var right = GetCameraRight();
-        var up = Vector3.Normalize(Vector3.Cross(right, forward));
+        var cameraPosition = _cameraController.CameraPosition;
+        var forward = _cameraController.Forward;
+        var right = _cameraController.Right;
+        var up = _cameraController.Up;
         var toObject = _viewModel.SelectedObject.Body.Position - cameraPosition;
 
         _moveStartPosition = _viewModel.SelectedObject.Body.Position;
@@ -780,7 +523,7 @@ public partial class MainWindow : Window
         {
             var axisScreenDirection = GetScreenAxisDirection(_moveStartPosition, _moveAxis);
             var signedPixels = (mouseDelta.X * axisScreenDirection.X) + (mouseDelta.Y * axisScreenDirection.Y);
-            var worldScale = Math.Max(0.015, _distance * 0.0018);
+        var worldScale = Math.Max(0.015, _cameraController.Distance * 0.0018);
             var amount = (float)(signedPixels * worldScale);
             nextPosition = _moveStartPosition + _moveAxis * amount;
         }
@@ -817,27 +560,12 @@ public partial class MainWindow : Window
 
     private Point ProjectToViewport(Vector3 world)
     {
-        var cameraPosition = new Vector3((float)Camera.Position.X, (float)Camera.Position.Y, (float)Camera.Position.Z);
-        var forward = Vector3.Normalize(_cameraTarget - cameraPosition);
-        var right = Vector3.Normalize(Vector3.Cross(forward, Vector3.UnitY));
-        var up = Vector3.Normalize(Vector3.Cross(right, forward));
-        var toPoint = world - cameraPosition;
-        var depth = MathF.Max(0.001f, Vector3.Dot(toPoint, forward));
-        var horizontal = Vector3.Dot(toPoint, right);
-        var vertical = Vector3.Dot(toPoint, up);
-        var fov = Math.PI * Camera.FieldOfView / 180.0;
-        var scale = Math.Tan(fov * 0.5) * depth;
-        var aspect = Math.Max(0.001, ViewportHost.ActualWidth / Math.Max(1.0, ViewportHost.ActualHeight));
-        var x = (horizontal / (scale * aspect) * 0.5 + 0.5) * ViewportHost.ActualWidth;
-        var y = (0.5 - vertical / scale * 0.5) * ViewportHost.ActualHeight;
-        return new Point(x, y);
+        return _cameraController.ProjectToViewport(world, ViewportHost.ActualWidth, ViewportHost.ActualHeight);
     }
 
     private double GetWorldUnitsPerPixel(float depth)
     {
-        var fov = Math.PI * Camera.FieldOfView / 180.0;
-        var visibleHeight = 2.0 * Math.Tan(fov * 0.5) * depth;
-        return visibleHeight / Math.Max(1.0, ViewportHost.ActualHeight);
+        return _cameraController.GetWorldUnitsPerPixel(depth, ViewportHost.ActualHeight);
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -849,112 +577,39 @@ public partial class MainWindow : Window
 
         if (e.Key == Key.Q)
         {
-            MoveCameraVertical(0.35f);
+            _cameraController.MoveVertical(0.35f);
             e.Handled = true;
         }
         else if (e.Key == Key.E)
         {
-            MoveCameraVertical(-0.35f);
+            _cameraController.MoveVertical(-0.35f);
             e.Handled = true;
         }
         else if (e.Key == Key.W)
         {
-            MoveCameraPlanar(GetCameraForward(), 0.35f);
+            _cameraController.MovePlanar(_cameraController.Forward, 0.35f);
             e.Handled = true;
         }
         else if (e.Key == Key.S)
         {
-            MoveCameraPlanar(GetCameraForward(), -0.35f);
+            _cameraController.MovePlanar(_cameraController.Forward, -0.35f);
             e.Handled = true;
         }
         else if (e.Key == Key.A)
         {
-            MoveCameraPlanar(GetCameraRight(), -0.35f);
+            _cameraController.MovePlanar(_cameraController.Right, -0.35f);
             e.Handled = true;
         }
         else if (e.Key == Key.D)
         {
-            MoveCameraPlanar(GetCameraRight(), 0.35f);
+            _cameraController.MovePlanar(_cameraController.Right, 0.35f);
             e.Handled = true;
         }
     }
 
-    private void MoveCameraVertical(float amount)
-    {
-        _cameraTarget += Vector3.UnitY * amount;
-        UpdateCamera();
-    }
-
-    private void MoveCameraPlanar(Vector3 direction, float amount)
-    {
-        direction.Y = 0.0f;
-
-        if (direction.LengthSquared() <= 0.000001f)
-        {
-            return;
-        }
-
-        _cameraTarget += Vector3.Normalize(direction) * amount;
-        UpdateCamera();
-    }
-
-    private Vector3 GetCameraRight()
-    {
-        return Vector3.Normalize(Vector3.Cross(GetCameraForward(), Vector3.UnitY));
-    }
-
     private void DrawGraph()
     {
-        GraphCanvas.Children.Clear();
-
-        var samples = _viewModel.GraphSamples.ToList();
-        if (samples.Count < 2 || GraphCanvas.ActualWidth <= 1.0 || GraphCanvas.ActualHeight <= 1.0)
-        {
-            return;
-        }
-
-        DrawSeries(samples.Select(sample => (double)sample.PositionY).ToList(), Colors.DeepSkyBlue);
-        DrawSeries(samples.Select(sample => (double)sample.Speed).ToList(), Colors.LightGreen);
-        DrawSeries(samples.Select(sample => (double)sample.KineticEnergy).ToList(), Colors.Orange);
-        AddGraphLabel("Y", Colors.DeepSkyBlue, 8);
-        AddGraphLabel("Speed", Colors.LightGreen, 42);
-        AddGraphLabel("Energy", Colors.Orange, 92);
-    }
-
-    private void DrawSeries(IReadOnlyList<double> values, MediaColor color)
-    {
-        var min = values.Min();
-        var max = values.Max();
-        var range = Math.Max(0.0001, max - min);
-        var width = GraphCanvas.ActualWidth;
-        var height = GraphCanvas.ActualHeight;
-        var polyline = new Polyline
-        {
-            Stroke = new SolidColorBrush(color),
-            StrokeThickness = 1.5
-        };
-
-        for (var i = 0; i < values.Count; i++)
-        {
-            var x = i / Math.Max(1.0, values.Count - 1.0) * width;
-            var y = height - ((values[i] - min) / range * (height - 10.0)) - 5.0;
-            polyline.Points.Add(new Point(x, y));
-        }
-
-        GraphCanvas.Children.Add(polyline);
-    }
-
-    private void AddGraphLabel(string text, MediaColor color, double left)
-    {
-        var label = new TextBlock
-        {
-            Text = text,
-            Foreground = new SolidColorBrush(color),
-            FontSize = 11
-        };
-        Canvas.SetLeft(label, left);
-        Canvas.SetTop(label, 4);
-        GraphCanvas.Children.Add(label);
+        _graphRenderer.Draw(GraphCanvas, _viewModel.GraphSamples.ToList());
     }
 
     private sealed record RenderEntry(Collider Collider, ModelUIElement3D Element, GeometryModel3D Model);

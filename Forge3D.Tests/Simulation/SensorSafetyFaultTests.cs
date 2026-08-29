@@ -1,4 +1,5 @@
 using System.Numerics;
+using Forge3D.Core;
 using Forge3D.Core.Dynamics;
 using Forge3D.Core.Simulation;
 using Forge3D.Core.Simulation.Faults;
@@ -119,5 +120,22 @@ public sealed class SensorSafetyFaultTests
         faults.Toggle(FaultType.MotorDegradation, vehicle, controller, sensor);
 
         Assert.Equal(0.35f, controller.MotorScale);
+    }
+
+    [Fact]
+    public void FaultManager_WheelSlipRestoresOriginalFriction()
+    {
+        var body = new RigidBody("Vehicle", Vector3.Zero)
+        {
+            Material = new PhysicsMaterial(0.72f, 0.0f)
+        };
+        var vehicle = new VehicleEntity("vehicle", "Vehicle", body);
+        var controller = new VehicleController();
+        var faults = new FaultManager();
+
+        faults.Toggle(FaultType.WheelSlip, vehicle, controller, null);
+        faults.Toggle(FaultType.WheelSlip, vehicle, controller, null);
+
+        Assert.Equal(0.72f, body.Material.Friction);
     }
 }

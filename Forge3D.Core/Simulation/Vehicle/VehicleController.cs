@@ -6,13 +6,19 @@ public sealed class VehicleController
 {
     public float SpeedGain { get; set; } = 18.0f;
 
-    public float HeadingGain { get; set; } = 8.0f;
+    public float HeadingGain { get; set; } = 12.0f;
 
     public float BrakeGain { get; set; } = 35.0f;
 
     public float MaxForce { get; set; } = 80.0f;
 
-    public float MaxTorque { get; set; } = 18.0f;
+    public float MaxTorque { get; set; } = 42.0f;
+
+    public float TurnSlowdownStartDegrees { get; set; } = 20.0f;
+
+    public float TurnSlowdownFullDegrees { get; set; } = 80.0f;
+
+    public float MinimumTurnSpeedScale { get; set; } = 0.18f;
 
     public float MotorScale { get; set; } = 1.0f;
 
@@ -34,13 +40,15 @@ public sealed class VehicleController
 
         var forward = Vector3.Normalize(Vector3.Transform(Vector3.UnitZ, body.Orientation));
         var currentForwardSpeed = Vector3.Dot(body.LinearVelocity, forward);
-        var targetSpeed = vehicle.MotionState == MotionState.EmergencyStop ? 0.0f : vehicle.TargetSpeed;
+        var headingError = NormalizeAngle(vehicle.TargetHeadingDegrees - vehicle.HeadingDegrees);
+        var targetSpeed = vehicle.MotionState == MotionState.EmergencyStop
+            ? 0.0f
+            : vehicle.TargetSpeed * GetTurnSpeedScale(MathF.Abs(headingError));
         var speedError = targetSpeed - currentForwardSpeed;
         var gain = vehicle.MotionState == MotionState.EmergencyStop ? BrakeGain : SpeedGain;
         var forceMagnitude = Math.Clamp(speedError * gain, -MaxForce, MaxForce) * MotorScale;
         body.ApplyForce(forward * forceMagnitude);
 
-        var headingError = NormalizeAngle(vehicle.TargetHeadingDegrees - vehicle.HeadingDegrees);
         var torque = Math.Clamp(headingError * HeadingGain * MathF.PI / 180.0f, -MaxTorque, MaxTorque) * MotorScale;
         body.ApplyTorque(Vector3.UnitY * torque);
 
@@ -74,5 +82,17 @@ public sealed class VehicleController
         }
 
         return degrees;
+    }
+
+    private float GetTurnSpeedScale(float headingErrorDegrees)
+    {
+        if (headingErrorDegrees <= TurnSlowdownStartDegrees)
+        {
+            return 1.0f;
+        }
+
+        var range = MathF.Max(1.0f, TurnSlowdownFullDegrees - TurnSlowdownStartDegrees);
+        var factor = Math.Clamp((headingErrorDegrees - TurnSlowdownStartDegrees) / range, 0.0f, 1.0f);
+        return 1.0f - ((1.0f - MinimumTurnSpeedScale) * factor);
     }
 }

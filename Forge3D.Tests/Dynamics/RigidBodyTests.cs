@@ -1,4 +1,5 @@
 using System.Numerics;
+using Forge3D.Core.Constraints;
 using Forge3D.Core.Dynamics;
 
 namespace Forge3D.Tests.Dynamics;
@@ -67,5 +68,24 @@ public sealed class RigidBodyTests
 
         Assert.Equal(Vector3.Zero, body.Position);
         Assert.Equal(Vector3.Zero, body.LinearVelocity);
+    }
+
+    [Fact]
+    public void IntegrateTransform_RespectsPlanarXzConstraints()
+    {
+        var body = new RigidBody("Vehicle", new Vector3(0.0f, 0.45f, 0.0f))
+        {
+            Constraints = MotionConstraints.PlanarXZ,
+            LinearVelocity = new Vector3(1.0f, -5.0f, 2.0f),
+            AngularVelocity = new Vector3(3.0f, 4.0f, 5.0f)
+        };
+
+        body.IntegrateTransform(1.0f);
+
+        Assert.Equal(0.45f, body.Position.Y);
+        Assert.Equal(0.0f, body.LinearVelocity.Y);
+        Assert.Equal(0.0f, body.AngularVelocity.X);
+        Assert.Equal(0.0f, body.AngularVelocity.Z);
+        Assert.NotEqual(0.0f, body.AngularVelocity.Y);
     }
 }

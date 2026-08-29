@@ -6,6 +6,11 @@ namespace Forge3D.Core.Simulation.Faults;
 public sealed class FaultManager
 {
     private readonly HashSet<FaultType> _activeFaults = [];
+    private float? _baseFriction;
+    private float? _baseMotorScale;
+    private bool? _baseCommandsEnabled;
+    private bool? _baseSensorEnabled;
+    private SensorState? _baseSensorState;
 
     public IReadOnlyCollection<FaultType> ActiveFaults => _activeFaults;
 
@@ -26,6 +31,11 @@ public sealed class FaultManager
         }
 
         Apply(vehicle, controller, sensor);
+        if (_activeFaults.Count == 0)
+        {
+            ReleaseBaseState();
+        }
+
         return _activeFaults.Contains(faultType);
     }
 
@@ -33,22 +43,55 @@ public sealed class FaultManager
     {
         _activeFaults.Clear();
         Apply(vehicle, controller, sensor);
+        ReleaseBaseState();
+    }
+
+    public void Reset()
+    {
+        _activeFaults.Clear();
+        ReleaseBaseState();
     }
 
     private void Apply(VehicleEntity vehicle, VehicleController controller, SensorEntity? sensor)
     {
+        CaptureBaseState(vehicle, controller, sensor);
+
         if (sensor is not null)
         {
-            sensor.State = HasFault(FaultType.SensorFailure) ? SensorState.Fault : SensorState.Normal;
-            sensor.IsEnabled = !HasFault(FaultType.SensorFailure);
+            sensor.State = HasFault(FaultType.SensorFailure) ? SensorState.Fault : _baseSensorState ?? SensorState.Normal;
+            sensor.IsEnabled = !HasFault(FaultType.SensorFailure) && (_baseSensorEnabled ?? true);
         }
 
         if (vehicle.PhysicsBody is not null)
         {
-            vehicle.PhysicsBody.Material.Friction = HasFault(FaultType.WheelSlip) ? 0.05f : 0.45f;
+            var baseFriction = _baseFriction ?? vehicle.PhysicsBody.Material.Friction;
+            vehicle.PhysicsBody.Material.Friction = HasFault(FaultType.WheelSlip) ? baseFriction * 0.12f : baseFriction;
         }
 
-        controller.MotorScale = HasFault(FaultType.MotorDegradation) ? 0.35f : 1.0f;
-        controller.CommandsEnabled = !HasFault(FaultType.CommunicationLoss);
+        var baseMotorScale = _baseMotorScale ?? controller.MotorScale;
+        controller.MotorScale = HasFault(FaultType.MotorDegradation) ? baseMotorScale * 0.35f : baseMotorScale;
+        controller.CommandsEnabled = !HasFault(FaultType.CommunicationLoss) && (_baseCommandsEnabled ?? true);
+    }
+
+    private void CaptureBaseState(VehicleEntity vehicle, VehicleController controller, SensorEntity? sensor)
+    {
+        _baseFriction ??= vehicle.PhysicsBody?.Material.Friction;
+        _baseMotorScale ??= controller.MotorScale;
+        _baseCommandsEnabled ??= controller.CommandsEnabled;
+
+        if (sensor is not null)
+        {
+            _baseSensorEnabled ??= sensor.IsEnabled;
+            _baseSensorState ??= sensor.State;
+        }
+    }
+
+    private void ReleaseBaseState()
+    {
+        _baseFriction = null;
+        _baseMotorScale = null;
+        _baseCommandsEnabled = null;
+        _baseSensorEnabled = null;
+        _baseSensorState = null;
     }
 }

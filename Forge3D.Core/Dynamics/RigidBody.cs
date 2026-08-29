@@ -1,4 +1,5 @@
 using System.Numerics;
+using Forge3D.Core.Constraints;
 using Forge3D.Core.Mathematics;
 
 namespace Forge3D.Core.Dynamics;
@@ -71,6 +72,8 @@ public sealed class RigidBody
 
     public Vector3 HalfExtents { get; set; } = Vector3.One * 0.5f;
 
+    public MotionConstraints Constraints { get; set; } = MotionConstraints.Free3D;
+
     public Vector3 ForceAccumulator => _forceAccumulator;
 
     public Vector3 TorqueAccumulator => _torqueAccumulator;
@@ -133,6 +136,7 @@ public sealed class RigidBody
 
         LinearVelocity *= MathF.Max(0.0f, 1.0f - (LinearDamping * deltaTime));
         AngularVelocity *= MathF.Max(0.0f, 1.0f - (AngularDamping * deltaTime));
+        ApplyVelocityConstraints();
     }
 
     public void IntegrateTransform(float deltaTime)
@@ -142,6 +146,7 @@ public sealed class RigidBody
             return;
         }
 
+        ApplyVelocityConstraints();
         Position += LinearVelocity * deltaTime;
 
         if (AngularVelocity.LengthSquared() > 0.0f)
@@ -166,6 +171,28 @@ public sealed class RigidBody
         var local = Vector3.Transform(vector, Quaternion.Conjugate(Orientation));
         var scaled = local * InverseInertia;
         return Vector3.Transform(scaled, Orientation);
+    }
+
+    private void ApplyVelocityConstraints()
+    {
+        LinearVelocity = ApplyLinearConstraints(LinearVelocity);
+        AngularVelocity = ApplyAngularConstraints(AngularVelocity);
+    }
+
+    private Vector3 ApplyLinearConstraints(Vector3 velocity)
+    {
+        return new Vector3(
+            Constraints.LockTranslationX ? 0.0f : velocity.X,
+            Constraints.LockTranslationY ? 0.0f : velocity.Y,
+            Constraints.LockTranslationZ ? 0.0f : velocity.Z);
+    }
+
+    private Vector3 ApplyAngularConstraints(Vector3 velocity)
+    {
+        return new Vector3(
+            Constraints.LockRotationX ? 0.0f : velocity.X,
+            Constraints.LockRotationY ? 0.0f : velocity.Y,
+            Constraints.LockRotationZ ? 0.0f : velocity.Z);
     }
 
     private static float SafeInverse(float value)

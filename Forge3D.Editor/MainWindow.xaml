@@ -8,6 +8,7 @@
         Background="#101316"
         PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
         <Style TargetType="Button">
             <Setter Property="Margin" Value="3"/>
             <Setter Property="Padding" Value="10,6"/>
@@ -50,39 +51,109 @@
         </Style>
     </Window.Resources>
 
+    <Window.InputBindings>
+        <KeyBinding Key="F5" Command="{Binding RunCommand}"/>
+        <KeyBinding Key="F6" Command="{Binding PauseCommand}"/>
+        <KeyBinding Key="F10" Command="{Binding StepCommand}"/>
+        <KeyBinding Key="R" Modifiers="Control" Command="{Binding ResetCommand}"/>
+        <KeyBinding Key="P" Modifiers="Control" Command="{Binding PlanPathCommand}"/>
+    </Window.InputBindings>
+
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#171E23" BorderBrush="#2B3942" BorderThickness="0,0,0,1" Padding="8">
+        <Menu DockPanel.Dock="Top" Background="#151B20" Foreground="#EEF4F5">
+            <MenuItem Header="{Binding MenuFile}">
+                <MenuItem Header="{Binding MenuImportData}" Click="ImportDataMenu_Click"/>
+                <Separator/>
+                <MenuItem Header="{Binding MenuExit}" Command="{Binding ExitCommand}"/>
+            </MenuItem>
+            <MenuItem Header="{Binding MenuEdit}"/>
+            <MenuItem Header="{Binding MenuView}">
+                <MenuItem Header="{Binding MenuSceneHierarchy}" IsCheckable="True" IsChecked="{Binding IsHierarchyVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuInspector}" IsCheckable="True" IsChecked="{Binding IsInspectorVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuTelemetry}" IsCheckable="True" IsChecked="{Binding IsTelemetryVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuGraph}" IsCheckable="True" IsChecked="{Binding IsGraphVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuEvents}" IsCheckable="True" IsChecked="{Binding IsEventPanelVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuReplay}" IsCheckable="True" IsChecked="{Binding IsReplayVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuProfiler}" IsCheckable="True" IsChecked="{Binding IsProfilerVisible, Mode=TwoWay}"/>
+                <Separator/>
+                <MenuItem Header="{Binding MenuSimulationToolbar}" IsCheckable="True" IsChecked="{Binding IsSimulationToolbarVisible, Mode=TwoWay}"/>
+                <MenuItem Header="{Binding MenuDebugToolbar}" IsCheckable="True" IsChecked="{Binding IsDebugToolbarVisible, Mode=TwoWay}"/>
+            </MenuItem>
+            <MenuItem Header="{Binding MenuSimulation}">
+                <MenuItem Header="{Binding ButtonRun}" Command="{Binding RunCommand}"/>
+                <MenuItem Header="{Binding ButtonPause}" Command="{Binding PauseCommand}"/>
+                <MenuItem Header="{Binding ButtonStep}" Command="{Binding StepCommand}"/>
+                <MenuItem Header="{Binding ButtonReset}" Command="{Binding ResetCommand}"/>
+            </MenuItem>
+            <MenuItem Header="{Binding MenuCreate}">
+                <MenuItem Header="{Binding MenuBox}" Command="{Binding AddBoxCommand}"/>
+                <MenuItem Header="{Binding MenuSphere}" Command="{Binding AddSphereCommand}"/>
+            </MenuItem>
+            <MenuItem Header="{Binding MenuDebug}">
+                <MenuItem Header="{Binding DebugVelocity}" IsCheckable="True" IsChecked="{Binding ShowVelocityDebug, Mode=TwoWay}" Click="DebugToggle_Click"/>
+                <MenuItem Header="{Binding DebugContact}" IsCheckable="True" IsChecked="{Binding ShowContactDebug, Mode=TwoWay}" Click="DebugToggle_Click"/>
+                <MenuItem Header="{Binding DebugNormal}" IsCheckable="True" IsChecked="{Binding ShowNormalDebug, Mode=TwoWay}" Click="DebugToggle_Click"/>
+                <MenuItem Header="{Binding DebugBounds}" IsCheckable="True" IsChecked="{Binding ShowBoundsDebug, Mode=TwoWay}" Click="DebugToggle_Click"/>
+                <MenuItem Header="{Binding DebugSensorFov}" IsCheckable="True" IsChecked="{Binding SensorFovDebug, Mode=TwoWay}" Click="DebugToggle_Click"/>
+                <MenuItem Header="{Binding DebugNavigationPath}" IsCheckable="True" IsChecked="{Binding ShowNavigationPathDebug, Mode=TwoWay}" Click="DebugToggle_Click"/>
+            </MenuItem>
+            <MenuItem Header="{Binding MenuTools}">
+                <MenuItem Header="{Binding MenuLanguage}">
+                    <MenuItem Header="한국어" IsCheckable="True" IsChecked="{Binding IsKorean, Mode=OneWay}" Command="{Binding SetKoreanCommand}"/>
+                    <MenuItem Header="English" IsCheckable="True" IsChecked="{Binding IsEnglish, Mode=OneWay}" Command="{Binding SetEnglishCommand}"/>
+                </MenuItem>
+                <Separator/>
+                <MenuItem Header="{Binding MenuSettings}" Click="SettingsMenu_Click"/>
+            </MenuItem>
+            <MenuItem Header="{Binding MenuHelp}"/>
+        </Menu>
+
+        <Border DockPanel.Dock="Top" Background="#171E23" BorderBrush="#2B3942" BorderThickness="0,0,0,1" Padding="8"
+                Visibility="{Binding IsSimulationToolbarVisible, Converter={StaticResource BoolToVisibility}}">
             <WrapPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-                    <TextBlock Text="Simulation" Foreground="#8FADB8" Margin="0,0,6,0"/>
-                    <Button Content="Run" Command="{Binding RunCommand}"/>
-                    <Button Content="Pause" Command="{Binding PauseCommand}"/>
-                    <Button Content="Step" Command="{Binding StepCommand}"/>
-                    <Button Content="Reset" Command="{Binding ResetCommand}"/>
+                    <TextBlock Text="{Binding LabelWorkspace}" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <ComboBox Width="150" ItemsSource="{Binding Workspaces}" SelectedItem="{Binding SelectedWorkspace}"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-                    <TextBlock Text="Create" Foreground="#8FADB8" Margin="0,0,6,0"/>
-                    <Button Content="Add Box" Command="{Binding AddBoxCommand}"/>
-                    <Button Content="Add Sphere" Command="{Binding AddSphereCommand}"/>
+                    <TextBlock Text="{Binding LabelSimulation}" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="{Binding ButtonRun}" Command="{Binding RunCommand}"/>
+                    <Button Content="{Binding ButtonPause}" Command="{Binding PauseCommand}"/>
+                    <Button Content="{Binding ButtonStep}" Command="{Binding StepCommand}"/>
+                    <Button Content="{Binding ButtonReset}" Command="{Binding ResetCommand}"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-                    <TextBlock Text="Debug" Foreground="#8FADB8" Margin="0,0,6,0"/>
-                    <ToggleButton Content="Velocity" IsChecked="{Binding ShowVelocityDebug}" Click="DebugToggle_Click"/>
-                    <ToggleButton Content="Contact" IsChecked="{Binding ShowContactDebug}" Click="DebugToggle_Click"/>
-                    <ToggleButton Content="Normal" IsChecked="{Binding ShowNormalDebug}" Click="DebugToggle_Click"/>
-                    <ToggleButton Content="Bounds" IsChecked="{Binding ShowBoundsDebug}" Click="DebugToggle_Click"/>
-                    <ToggleButton Content="Sensor FOV" IsChecked="{Binding SensorFovDebug}" Click="DebugToggle_Click" MinWidth="104"/>
+                    <TextBlock Text="{Binding LabelCreate}" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="{Binding ButtonAddBox}" Command="{Binding AddBoxCommand}"/>
+                    <Button Content="{Binding ButtonAddSphere}" Command="{Binding AddSphereCommand}"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,14,0"
+                            Visibility="{Binding IsDebugToolbarVisible, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="{Binding LabelDebug}" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <ToggleButton Content="{Binding DebugVelocity}" IsChecked="{Binding ShowVelocityDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="{Binding DebugContact}" IsChecked="{Binding ShowContactDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="{Binding DebugNormal}" IsChecked="{Binding ShowNormalDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="{Binding DebugBounds}" IsChecked="{Binding ShowBoundsDebug}" Click="DebugToggle_Click"/>
+                    <ToggleButton Content="{Binding DebugSensorFov}" IsChecked="{Binding SensorFovDebug}" Click="DebugToggle_Click" MinWidth="104"/>
+                    <ToggleButton Content="{Binding DebugNavigationPath}" IsChecked="{Binding ShowNavigationPathDebug}" Click="DebugToggle_Click"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
-                    <TextBlock Text="Scenes" Foreground="#8FADB8" Margin="0,0,6,0"/>
-                    <Button Content="Drop" Command="{Binding DropDemoCommand}"/>
-                    <Button Content="Bounce" Command="{Binding BounceDemoCommand}"/>
-                    <Button Content="Friction" Command="{Binding FrictionDemoCommand}"/>
-                    <Button Content="Stack" Command="{Binding StackDemoCommand}"/>
-                    <Button Content="Engineering" Command="{Binding EngineeringScenarioCommand}" MinWidth="96"/>
+                    <TextBlock Text="{Binding LabelNavigation}" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <ComboBox Width="104" ItemsSource="{Binding MobilityModels}" SelectedItem="{Binding SelectedMobilityModel}" Margin="3"/>
+                    <ComboBox Width="104" ItemsSource="{Binding Planners}" SelectedItem="{Binding SelectedPlanner}" Margin="3"/>
+                    <Button Content="{Binding ButtonPlanPath}" Command="{Binding PlanPathCommand}" MinWidth="92"/>
+                    <Button Content="{Binding ButtonClearPath}" Command="{Binding ClearPathCommand}" MinWidth="92"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,14,0">
+                    <TextBlock Text="{Binding LabelScenes}" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <Button Content="{Binding ButtonDrop}" Command="{Binding DropDemoCommand}"/>
+                    <Button Content="{Binding ButtonBounce}" Command="{Binding BounceDemoCommand}"/>
+                    <Button Content="{Binding ButtonFriction}" Command="{Binding FrictionDemoCommand}"/>
+                    <Button Content="{Binding ButtonStack}" Command="{Binding StackDemoCommand}"/>
+                    <Button Content="{Binding ButtonEngineering}" Command="{Binding EngineeringScenarioCommand}" MinWidth="96"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Stress" Foreground="#8FADB8" Margin="0,0,6,0"/>
+                    <TextBlock Text="{Binding LabelStress}" Foreground="#8FADB8" Margin="0,0,6,0"/>
                     <Button Content="100" Command="{Binding Stress100Command}"/>
                     <Button Content="300" Command="{Binding Stress300Command}"/>
                     <Button Content="500" Command="{Binding Stress500Command}"/>
@@ -92,35 +163,38 @@
 
         <Border DockPanel.Dock="Bottom" Background="#171E23" BorderBrush="#2B3942" BorderThickness="0,1,0,0" Padding="10">
             <DockPanel>
-                <UniformGrid DockPanel.Dock="Top" Columns="11" Margin="0,0,0,8">
-                    <TextBlock Text="{Binding Status, StringFormat=Status: {0}}"/>
-                    <TextBlock Text="{Binding Fps, StringFormat=FPS: {0:F0}}"/>
-                    <TextBlock Text="{Binding Stats.BodyCount, StringFormat=Bodies: {0}}"/>
-                    <TextBlock Text="{Binding Stats.ColliderCount, StringFormat=Colliders: {0}}"/>
-                    <TextBlock Text="{Binding Stats.PotentialPairCount, StringFormat=Total Pairs: {0}}"/>
-                    <TextBlock Text="{Binding Stats.CandidatePairCount, StringFormat=Candidates: {0}}"/>
-                    <TextBlock Text="{Binding Stats.ContactCount, StringFormat=Contacts: {0}}"/>
-                    <TextBlock Text="{Binding Stats.BroadPhaseTime.TotalMilliseconds, StringFormat=Broad: {0:F3} ms}"/>
-                    <TextBlock Text="{Binding Stats.NarrowPhaseTime.TotalMilliseconds, StringFormat=Narrow: {0:F3} ms}"/>
-                    <TextBlock Text="{Binding Stats.SolverTime.TotalMilliseconds, StringFormat=Solver: {0:F3} ms}"/>
-                    <TextBlock Text="{Binding Stats.TotalPhysicsTime.TotalMilliseconds, StringFormat=Physics: {0:F3} ms}"/>
+                <UniformGrid DockPanel.Dock="Top" Columns="11" Margin="0,0,0,8"
+                             Visibility="{Binding IsProfilerVisible, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="{Binding StatusDisplay}"/>
+                    <TextBlock Text="{Binding FpsDisplay}"/>
+                    <TextBlock Text="{Binding BodyCountDisplay}"/>
+                    <TextBlock Text="{Binding ColliderCountDisplay}"/>
+                    <TextBlock Text="{Binding PotentialPairCountDisplay}"/>
+                    <TextBlock Text="{Binding CandidatePairCountDisplay}"/>
+                    <TextBlock Text="{Binding ContactCountDisplay}"/>
+                    <TextBlock Text="{Binding BroadPhaseDisplay}"/>
+                    <TextBlock Text="{Binding NarrowPhaseDisplay}"/>
+                    <TextBlock Text="{Binding SolverDisplay}"/>
+                    <TextBlock Text="{Binding PhysicsTimeDisplay}"/>
                 </UniformGrid>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="320"/>
                     </Grid.ColumnDefinitions>
-                    <Canvas x:Name="GraphCanvas" Height="110" Background="#10161A" SizeChanged="GraphCanvas_SizeChanged"/>
-                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                        <TextBlock Text="Replay / Timeline" FontWeight="SemiBold"/>
+                    <Canvas x:Name="GraphCanvas" Height="110" Background="#10161A" SizeChanged="GraphCanvas_SizeChanged"
+                            Visibility="{Binding IsGraphVisible, Converter={StaticResource BoolToVisibility}}"/>
+                    <StackPanel Grid.Column="1" Margin="12,0,0,0"
+                                Visibility="{Binding IsReplayVisible, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="{Binding HeaderReplayTimeline}" FontWeight="SemiBold"/>
                         <StackPanel Orientation="Horizontal">
-                            <CheckBox Content="Record" Foreground="#DDE6E8" IsChecked="{Binding IsRecording}"/>
-                            <CheckBox Content="Replay" Foreground="#DDE6E8" IsChecked="{Binding IsReplayMode}" Margin="12,0,0,0"/>
-                            <Button Content="Clear" Command="{Binding ClearReplayCommand}" MinWidth="58"/>
+                            <CheckBox Content="{Binding LabelRecord}" Foreground="#DDE6E8" IsChecked="{Binding IsRecording}"/>
+                            <CheckBox Content="{Binding LabelReplay}" Foreground="#DDE6E8" IsChecked="{Binding IsReplayMode}" Margin="12,0,0,0"/>
+                            <Button Content="{Binding ButtonClear}" Command="{Binding ClearReplayCommand}" MinWidth="58"/>
                         </StackPanel>
                         <Slider Minimum="0" Maximum="{Binding ReplayFrameCount}" Value="{Binding TimelineValue}" TickFrequency="1"/>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Speed"/>
+                            <TextBlock Text="{Binding LabelSpeed}"/>
                             <Slider Width="170" Minimum="0.5" Maximum="2" TickFrequency="0.5" IsSnapToTickEnabled="True" Value="{Binding ReplaySpeed}" Margin="8,0,0,0"/>
                             <TextBlock Text="{Binding ReplaySpeed, StringFormat={}{0:F1}x}" Margin="8,0,0,0"/>
                         </StackPanel>
@@ -136,11 +210,12 @@
                 <ColumnDefinition Width="300"/>
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Background="#12181D" BorderBrush="#2B3942" BorderThickness="0,0,1,0" Padding="10">
+            <Border Grid.Column="0" Background="#12181D" BorderBrush="#2B3942" BorderThickness="0,0,1,0" Padding="10"
+                    Visibility="{Binding IsHierarchyVisible, Converter={StaticResource BoolToVisibility}}">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="Scene Hierarchy" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock DockPanel.Dock="Top" Text="{Binding HeaderSceneHierarchy}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                     <StackPanel>
-                        <TextBlock Text="Physics Bodies" Foreground="#8FADB8" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding HeaderPhysicsBodies}" Foreground="#8FADB8" Margin="0,0,0,4"/>
                         <ListBox Height="230" ItemsSource="{Binding Objects}" SelectedItem="{Binding SelectedObject}" SelectionChanged="ObjectsList_SelectionChanged">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
@@ -155,7 +230,7 @@
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
-                        <TextBlock Text="Simulation Entities" Foreground="#8FADB8" Margin="0,10,0,4"/>
+                        <TextBlock Text="{Binding HeaderSimulationEntities}" Foreground="#8FADB8" Margin="0,10,0,4"/>
                         <ListBox Height="250" ItemsSource="{Binding Entities}" SelectedItem="{Binding SelectedEntity}" SelectionChanged="EntitiesList_SelectionChanged">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
@@ -193,13 +268,14 @@
                 </Viewport3D>
             </Border>
 
-            <Border Grid.Column="2" Background="#12181D" BorderBrush="#2B3942" BorderThickness="1,0,0,0" Padding="10">
+            <Border Grid.Column="2" Background="#12181D" BorderBrush="#2B3942" BorderThickness="1,0,0,0" Padding="10"
+                    Visibility="{Binding IsInspectorVisible, Converter={StaticResource BoolToVisibility}}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
-                        <TextBlock Text="Inspector" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
-                        <TextBlock Text="{Binding SelectedObject.Name, TargetNullValue=No selection}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
+                        <TextBlock Text="{Binding HeaderInspector}" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <TextBlock Text="{Binding SelectedObjectDisplayName}" FontSize="18" FontWeight="Bold" Foreground="#FFFFFF" Margin="0,0,0,12"/>
 
-                        <GroupBox Header="Transform">
+                        <GroupBox Header="{Binding HeaderTransform}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="24"/>
@@ -219,7 +295,7 @@
                             </Grid>
                         </GroupBox>
 
-                        <GroupBox Header="Rotation">
+                        <GroupBox Header="{Binding HeaderRotation}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="24"/>
@@ -239,23 +315,23 @@
                             </Grid>
                         </GroupBox>
 
-                        <GroupBox Header="Physics">
+                        <GroupBox Header="{Binding HeaderPhysics}">
                             <StackPanel>
-                                <CheckBox Content="Static" Foreground="#DDE6E8" IsChecked="{Binding SelectedObject.IsStatic}"/>
-                                <TextBlock Text="Mass"/>
+                                <CheckBox Content="{Binding LabelStatic}" Foreground="#DDE6E8" IsChecked="{Binding SelectedObject.IsStatic}"/>
+                                <TextBlock Text="{Binding LabelMass}"/>
                                 <TextBox Text="{Binding SelectedObject.Mass, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
-                                <TextBlock Text="Friction"/>
+                                <TextBlock Text="{Binding LabelFriction}"/>
                                 <TextBox Text="{Binding SelectedObject.Friction, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
-                                <TextBlock Text="Restitution"/>
+                                <TextBlock Text="{Binding LabelRestitution}"/>
                                 <TextBox Text="{Binding SelectedObject.Restitution, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
-                                <TextBlock Text="Linear Damping"/>
+                                <TextBlock Text="{Binding LabelLinearDamping}"/>
                                 <TextBox Text="{Binding SelectedObject.LinearDamping, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
-                                <TextBlock Text="Angular Damping"/>
+                                <TextBlock Text="{Binding LabelAngularDamping}"/>
                                 <TextBox Text="{Binding SelectedObject.AngularDamping, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
                             </StackPanel>
                         </GroupBox>
 
-                        <GroupBox Header="Velocity">
+                        <GroupBox Header="{Binding HeaderVelocity}">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="34"/>
@@ -283,101 +359,140 @@
                             </Grid>
                         </GroupBox>
 
-                        <GroupBox Header="Diagnostics">
+                        <GroupBox Header="{Binding HeaderDiagnostics}">
                             <StackPanel>
-                                <TextBlock Text="{Binding SelectedObject.CenterOfMass, StringFormat=Center: {0}}"/>
-                                <TextBlock Text="{Binding SelectedObject.SleepState, StringFormat=State: {0}}"/>
-                                <TextBlock Text="{Binding SelectedObject.CurrentSpeed, StringFormat=Speed: {0:F2}}"/>
-                                <TextBlock Text="{Binding SelectedObject.AngularSpeed, StringFormat=Angular: {0:F2}}"/>
-                                <TextBlock Text="{Binding SelectedObject.KineticEnergy, StringFormat=Energy: {0:F2}}"/>
+                                <TextBlock Text="{Binding CenterOfMassDisplay}"/>
+                                <TextBlock Text="{Binding SleepStateDisplay}"/>
+                                <TextBlock Text="{Binding CurrentSpeedDisplay}"/>
+                                <TextBlock Text="{Binding AngularSpeedDisplay}"/>
+                                <TextBlock Text="{Binding KineticEnergyDisplay}"/>
                             </StackPanel>
                         </GroupBox>
 
-                        <GroupBox Header="Actions">
+                        <GroupBox Header="{Binding HeaderActions}">
                             <StackPanel>
-                                <TextBlock Text="Force"/>
+                                <TextBlock Text="{Binding LabelForce}"/>
                                 <UniformGrid Columns="3">
                                     <TextBox Text="{Binding ForceX, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding ForceY, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding ForceZ, UpdateSourceTrigger=PropertyChanged}"/>
                                 </UniformGrid>
-                                <Button Content="Apply Force" Command="{Binding ApplyForceCommand}"/>
-                                <TextBlock Text="Torque"/>
+                                <Button Content="{Binding ButtonApplyForce}" Command="{Binding ApplyForceCommand}"/>
+                                <TextBlock Text="{Binding LabelTorque}"/>
                                 <UniformGrid Columns="3">
                                     <TextBox Text="{Binding TorqueX, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding TorqueY, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding TorqueZ, UpdateSourceTrigger=PropertyChanged}"/>
                                 </UniformGrid>
-                                <Button Content="Apply Torque" Command="{Binding ApplyTorqueCommand}"/>
-                                <TextBlock Text="Impulse"/>
+                                <Button Content="{Binding ButtonApplyTorque}" Command="{Binding ApplyTorqueCommand}"/>
+                                <TextBlock Text="{Binding LabelImpulse}"/>
                                 <UniformGrid Columns="3">
                                     <TextBox Text="{Binding ImpulseX, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding ImpulseY, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding ImpulseZ, UpdateSourceTrigger=PropertyChanged}"/>
                                 </UniformGrid>
-                                <Button Content="Apply Impulse" Command="{Binding ApplyImpulseCommand}"/>
-                                <TextBlock Text="Application Point"/>
+                                <Button Content="{Binding ButtonApplyImpulse}" Command="{Binding ApplyImpulseCommand}"/>
+                                <TextBlock Text="{Binding LabelApplicationPoint}"/>
                                 <UniformGrid Columns="3">
                                     <TextBox Text="{Binding PointX, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding PointY, UpdateSourceTrigger=PropertyChanged}"/>
                                     <TextBox Text="{Binding PointZ, UpdateSourceTrigger=PropertyChanged}"/>
                                 </UniformGrid>
-                                <Button Content="Apply Impulse At Point" Command="{Binding ApplyImpulseAtPointCommand}"/>
+                                <Button Content="{Binding ButtonApplyImpulseAtPoint}" Command="{Binding ApplyImpulseAtPointCommand}"/>
                             </StackPanel>
                         </GroupBox>
 
-                        <GroupBox Header="Contacts">
+                        <GroupBox Header="{Binding HeaderContacts}">
                             <ListBox ItemsSource="{Binding ContactDetails}" MaxHeight="150"/>
                         </GroupBox>
 
-                        <GroupBox Header="Vehicle Control">
+                        <GroupBox Header="{Binding HeaderVehicleControl}">
                             <StackPanel>
-                                <TextBlock Text="Target Speed"/>
+                                <TextBlock Text="{Binding LabelTargetSpeed}"/>
                                 <TextBox Text="{Binding TargetSpeed, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
-                                <TextBlock Text="Target Heading"/>
+                                <TextBlock Text="{Binding LabelTargetHeading}"/>
                                 <TextBox Text="{Binding TargetHeading, UpdateSourceTrigger=PropertyChanged, StringFormat=F1}"/>
                                 <WrapPanel>
-                                    <Button Content="Start Mission" Command="{Binding StartMissionCommand}" MinWidth="106"/>
-                                    <Button Content="Stop" Command="{Binding StopVehicleCommand}"/>
-                                    <Button Content="Emergency" Command="{Binding EmergencyStopCommand}" MinWidth="96"/>
+                                    <Button Content="{Binding ButtonStartMission}" Command="{Binding StartMissionCommand}" MinWidth="106"/>
+                                    <Button Content="{Binding ButtonStop}" Command="{Binding StopVehicleCommand}"/>
+                                    <Button Content="{Binding ButtonEmergency}" Command="{Binding EmergencyStopCommand}" MinWidth="96"/>
                                 </WrapPanel>
                                 <WrapPanel>
-                                    <Button Content="Pause" Command="{Binding PauseMissionCommand}"/>
-                                    <Button Content="Resume" Command="{Binding ResumeMissionCommand}"/>
-                                    <Button Content="Abort" Command="{Binding AbortMissionCommand}"/>
-                                    <Button Content="Reset" Command="{Binding ResetMissionCommand}"/>
+                                    <Button Content="{Binding ButtonMissionPause}" Command="{Binding PauseMissionCommand}"/>
+                                    <Button Content="{Binding ButtonResume}" Command="{Binding ResumeMissionCommand}"/>
+                                    <Button Content="{Binding ButtonAbort}" Command="{Binding AbortMissionCommand}"/>
+                                    <Button Content="{Binding ButtonMissionReset}" Command="{Binding ResetMissionCommand}"/>
                                 </WrapPanel>
                             </StackPanel>
                         </GroupBox>
 
-                        <GroupBox Header="Telemetry / Safety">
+                        <GroupBox Header="{Binding LabelNavigation}">
                             <StackPanel>
-                                <TextBlock Text="{Binding MissionState, StringFormat=Mission: {0}}"/>
-                                <TextBlock Text="{Binding CurrentWaypointName, StringFormat=Waypoint: {0}}"/>
-                                <TextBlock Text="{Binding MissionProgress, StringFormat=Progress: {0:F0}%}"/>
-                                <TextBlock Text="{Binding DistanceToWaypoint, StringFormat=Distance: {0}}"/>
-                                <TextBlock Text="{Binding SafetyState, StringFormat=Safety: {0}}"/>
-                                <TextBlock Text="{Binding SafetyTarget, StringFormat=Target: {0}}"/>
-                                <TextBlock Text="{Binding SafetyDistance, StringFormat=Obstacle Distance: {0}}"/>
-                                <TextBlock Text="{Binding TimeToCollision, StringFormat=TTC: {0}}"/>
+                                <TextBlock Text="{Binding LabelStartXZ}"/>
+                                <UniformGrid Columns="2">
+                                    <TextBox Text="{Binding NavigationStartX, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                    <TextBox Text="{Binding NavigationStartZ, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                </UniformGrid>
+                                <TextBlock Text="{Binding LabelGoalXZ}"/>
+                                <UniformGrid Columns="2">
+                                    <TextBox Text="{Binding NavigationGoalX, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                    <TextBox Text="{Binding NavigationGoalZ, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                </UniformGrid>
+                                <TextBlock Text="{Binding LabelGridResolution}"/>
+                                <TextBox Text="{Binding GridResolution, UpdateSourceTrigger=PropertyChanged, StringFormat=F2}"/>
+                                <WrapPanel>
+                                    <Button Content="{Binding ButtonPlanPath}" Command="{Binding PlanPathCommand}" MinWidth="92"/>
+                                    <Button Content="{Binding ButtonClearPath}" Command="{Binding ClearPathCommand}" MinWidth="92"/>
+                                </WrapPanel>
+                                <TextBlock Text="{Binding ExpandedNodesDisplay}"/>
+                                <TextBlock Text="{Binding PathLengthDisplay}"/>
+                                <TextBlock Text="{Binding PlanningTimeDisplay}"/>
                             </StackPanel>
                         </GroupBox>
 
-                        <GroupBox Header="Detections">
+                        <GroupBox Header="{Binding HeaderTelemetrySafety}"
+                                  Visibility="{Binding IsTelemetryVisible, Converter={StaticResource BoolToVisibility}}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding MissionStateDisplay}"/>
+                                <TextBlock Text="{Binding CurrentWaypointDisplay}"/>
+                                <TextBlock Text="{Binding MissionProgressDisplay}"/>
+                                <TextBlock Text="{Binding DistanceToWaypointDisplay}"/>
+                                <TextBlock Text="{Binding SafetyStateDisplay}"/>
+                                <TextBlock Text="{Binding SafetyTargetDisplay}"/>
+                                <TextBlock Text="{Binding SafetyDistanceDisplay}"/>
+                                <TextBlock Text="{Binding TimeToCollisionDisplay}"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="{Binding HeaderDetections}">
                             <ListBox ItemsSource="{Binding DetectionDetails}" MaxHeight="130"/>
                         </GroupBox>
 
-                        <GroupBox Header="Fault Injection">
+                        <GroupBox Header="{Binding HeaderFaultInjection}">
                             <WrapPanel>
-                                <Button Content="Sensor Failure" Command="{Binding SensorFaultCommand}" MinWidth="118"/>
-                                <Button Content="Wheel Slip" Command="{Binding WheelSlipCommand}" MinWidth="96"/>
-                                <Button Content="Motor Degrade" Command="{Binding MotorDegradationCommand}" MinWidth="118"/>
-                                <Button Content="Comm Loss" Command="{Binding CommunicationLossCommand}" MinWidth="100"/>
-                                <Button Content="Clear Faults" Command="{Binding ClearFaultsCommand}" MinWidth="104"/>
+                                <Button Content="{Binding ButtonSensorFailure}" Command="{Binding SensorFaultCommand}" MinWidth="118"/>
+                                <Button Content="{Binding ButtonWheelSlip}" Command="{Binding WheelSlipCommand}" MinWidth="96"/>
+                                <Button Content="{Binding ButtonMotorDegrade}" Command="{Binding MotorDegradationCommand}" MinWidth="118"/>
+                                <Button Content="{Binding ButtonCommLoss}" Command="{Binding CommunicationLossCommand}" MinWidth="100"/>
+                                <Button Content="{Binding ButtonClearFaults}" Command="{Binding ClearFaultsCommand}" MinWidth="104"/>
                             </WrapPanel>
                         </GroupBox>
 
-                        <GroupBox Header="Events / Alarms">
+                        <GroupBox Header="{Binding HeaderDataAnalysis}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding LabelImportPath}"/>
+                                <TextBox Text="{Binding DataImportPath, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Button Content="{Binding ButtonImportData}" Command="{Binding ImportDataCommand}" MinWidth="104"/>
+                                <TextBlock Text="{Binding DataFormatDisplay}"/>
+                                <TextBlock Text="{Binding ValidationSummaryDisplay}"/>
+                                <TextBlock Text="{Binding CapabilitySummaryDisplay}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding LabelDetectedFields}" Foreground="#8FADB8" Margin="0,8,0,4"/>
+                                <ListBox ItemsSource="{Binding DetectedFields}" MaxHeight="100"/>
+                            </StackPanel>
+                        </GroupBox>
+
+                        <GroupBox Header="{Binding HeaderEventsAlarms}"
+                                  Visibility="{Binding IsEventPanelVisible, Converter={StaticResource BoolToVisibility}}">
                             <ListBox ItemsSource="{Binding EventLog}" MaxHeight="180"/>
                         </GroupBox>
                     </StackPanel>

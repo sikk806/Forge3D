@@ -38,6 +38,30 @@ public sealed class VehicleControllerTests
     }
 
     [Fact]
+    public void Update_ReducesForwardForceWhenHeadingErrorIsLarge()
+    {
+        var straightBody = new RigidBody("StraightVehicle", Vector3.Zero);
+        var turningBody = new RigidBody("TurningVehicle", Vector3.Zero);
+        var straightVehicle = new VehicleEntity("straight", "StraightVehicle", straightBody)
+        {
+            TargetSpeed = 3.0f,
+            TargetHeadingDegrees = 0.0f
+        };
+        var turningVehicle = new VehicleEntity("turning", "TurningVehicle", turningBody)
+        {
+            TargetSpeed = 3.0f,
+            TargetHeadingDegrees = 90.0f
+        };
+        var controller = new VehicleController();
+
+        controller.Update(straightVehicle);
+        controller.Update(turningVehicle);
+
+        Assert.True(turningBody.ForceAccumulator.Length() < straightBody.ForceAccumulator.Length());
+        Assert.True(turningBody.TorqueAccumulator.Y > 0.0f);
+    }
+
+    [Fact]
     public void EmergencyStop_SetsTargetSpeedToZero()
     {
         var vehicle = new VehicleEntity("vehicle", "Vehicle", new RigidBody("Vehicle", Vector3.Zero))
