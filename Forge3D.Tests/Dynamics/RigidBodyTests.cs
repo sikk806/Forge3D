@@ -88,4 +88,17 @@ public sealed class RigidBodyTests
         Assert.Equal(0.0f, body.AngularVelocity.Z);
         Assert.NotEqual(0.0f, body.AngularVelocity.Y);
     }
+
+    [Fact]
+    public void PhysicsPose_InterpolatesPositionWithoutChangingBody()
+    {
+        var body = new RigidBody("Body", Vector3.Zero);
+        body.CapturePreviousPose();
+        body.Position = new Vector3(10.0f, 0.0f, 0.0f);
+
+        var pose = PhysicsPose.Interpolate(body.PreviousPose, body.CurrentPose, 0.5f);
+
+        Assert.Equal(5.0f, pose.Position.X);
+        Assert.Equal(10.0f, body.Position.X);
+    }
 }

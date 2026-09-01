@@ -65,7 +65,7 @@ public sealed class GridAStarPlanner : IPathPlanner
             foreach (var direction in Directions)
             {
                 var next = new Cell(current.X + direction.X, current.Z + direction.Z);
-                if (!grid.Contains(next) || IsBlocked(next))
+                if (!grid.Contains(next) || IsBlocked(next) || IsSegmentBlocked(current, next))
                 {
                     continue;
                 }
@@ -89,6 +89,19 @@ public sealed class GridAStarPlanner : IPathPlanner
         {
             var point = grid.ToWorld(cell);
             return _collisionChecker.IsBlocked(point.X, point.Z, request.Vehicle, request.Obstacles);
+        }
+
+        bool IsSegmentBlocked(Cell current, Cell next)
+        {
+            var currentPoint = grid.ToWorld(current);
+            var nextPoint = grid.ToWorld(next);
+            var heading = MathF.Atan2(nextPoint.X - currentPoint.X, nextPoint.Z - currentPoint.Z) * 180.0f / MathF.PI;
+            return _collisionChecker.IsSegmentBlocked(
+                new NavigationPose(currentPoint.X, currentPoint.Z, heading),
+                new NavigationPose(nextPoint.X, nextPoint.Z, heading),
+                request.Vehicle,
+                request.Obstacles,
+                request.GridResolution * 0.5f);
         }
     }
 

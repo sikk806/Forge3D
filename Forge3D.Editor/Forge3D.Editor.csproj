@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Forge3D.Core\Forge3D.Core.csproj" />
+    <ProjectReference Include="..\Forge3D.Contracts\Forge3D.Contracts.csproj" />
+    <ProjectReference Include="..\Forge3D.Simulator\Forge3D.Simulator.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

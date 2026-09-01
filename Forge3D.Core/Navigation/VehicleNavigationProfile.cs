@@ -12,5 +12,7 @@ public sealed class VehicleNavigationProfile
 
     public float Length { get; init; } = 1.7f;
 
+    public float Clearance { get; init; } = 0.2f;
+
     public bool AllowReverse { get; init; }
 }

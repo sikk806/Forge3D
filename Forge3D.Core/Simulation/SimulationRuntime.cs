@@ -54,7 +54,7 @@ public sealed class SimulationRuntime
         }
 
         MissionController.Update(Vehicle);
-        VehicleController.Update(Vehicle);
+        VehicleController.Update(Vehicle, deltaTime);
 
         if (Sensor is not null)
         {

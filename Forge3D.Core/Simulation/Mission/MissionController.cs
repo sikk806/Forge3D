@@ -13,6 +13,16 @@ public sealed class MissionController
 
     public int CurrentIndex { get; private set; }
 
+    public float LookAheadDistance { get; set; } = 1.8f;
+
+    public float LookAheadSpeedFactor { get; set; } = 0.25f;
+
+    public float StopAndTurnThresholdDegrees { get; set; } = 35.0f;
+
+    public float HeadingAlignmentToleranceDegrees { get; set; } = 8.0f;
+
+    public float CruiseSpeed { get; set; } = 3.0f;
+
     public WaypointEntity? CurrentWaypoint => CurrentIndex >= 0 && CurrentIndex < _waypoints.Count ? _waypoints[CurrentIndex] : null;
 
     public float Progress => _waypoints.Count == 0 ? 0.0f : _waypoints.Count(item => item.IsReached) / (float)_waypoints.Count;
@@ -99,10 +109,80 @@ public sealed class MissionController
 
         if (CurrentWaypoint is not null)
         {
-            var direction = Vector3.Normalize(CurrentWaypoint.Position - vehicle.Position);
-            vehicle.TargetHeadingDegrees = MathF.Atan2(direction.X, direction.Z) * 180.0f / MathF.PI;
-            vehicle.TargetSpeed = 3.0f;
+            var directDirection = DirectionTo(vehicle.Position, CurrentWaypoint.Position);
+            var directHeading = ToHeadingDegrees(directDirection);
+            var directHeadingError = MathF.Abs(NormalizeAngle(directHeading - vehicle.HeadingDegrees));
+            if (directHeadingError >= StopAndTurnThresholdDegrees)
+            {
+                vehicle.TargetHeadingDegrees = directHeading;
+                vehicle.TargetSpeed = 0.0f;
+                vehicle.CurrentWaypointId = CurrentWaypoint.Id;
+                return;
+            }
+
+            var targetPosition = GetLookAheadPosition(vehicle);
+            var direction = DirectionTo(vehicle.Position, targetPosition);
+            vehicle.TargetHeadingDegrees = ToHeadingDegrees(direction);
+            var headingError = MathF.Abs(NormalizeAngle(vehicle.TargetHeadingDegrees - vehicle.HeadingDegrees));
+            vehicle.TargetSpeed = headingError <= HeadingAlignmentToleranceDegrees ? CruiseSpeed : 0.0f;
             vehicle.CurrentWaypointId = CurrentWaypoint.Id;
         }
+    }
+
+    private static Vector3 DirectionTo(Vector3 from, Vector3 to)
+    {
+        var delta = to - from;
+        delta.Y = 0.0f;
+        return delta.LengthSquared() <= 0.0001f ? Vector3.UnitZ : Vector3.Normalize(delta);
+    }
+
+    private static float ToHeadingDegrees(Vector3 direction)
+    {
+        return MathF.Atan2(direction.X, direction.Z) * 180.0f / MathF.PI;
+    }
+
+    private static float NormalizeAngle(float degrees)
+    {
+        while (degrees > 180.0f)
+        {
+            degrees -= 360.0f;
+        }
+
+        while (degrees < -180.0f)
+        {
+            degrees += 360.0f;
+        }
+
+        return degrees;
+    }
+
+    private Vector3 GetLookAheadPosition(VehicleEntity vehicle)
+    {
+        var lookAhead = LookAheadDistance + (vehicle.CurrentSpeed * LookAheadSpeedFactor);
+        var previous = vehicle.Position;
+
+        for (var index = CurrentIndex; index < _waypoints.Count; index++)
+        {
+            var candidate = _waypoints[index].Position;
+            var segmentLength = DistanceXZ(previous, candidate);
+
+            if (segmentLength >= lookAhead)
+            {
+                var t = Math.Clamp(lookAhead / MathF.Max(0.001f, segmentLength), 0.0f, 1.0f);
+                return Vector3.Lerp(previous, candidate, t);
+            }
+
+            lookAhead -= segmentLength;
+            previous = candidate;
+        }
+
+        return _waypoints.Count == 0 ? vehicle.Position : _waypoints[^1].Position;
+    }
+
+    private static float DistanceXZ(Vector3 a, Vector3 b)
+    {
+        var dx = a.X - b.X;
+        var dz = a.Z - b.Z;
+        return MathF.Sqrt((dx * dx) + (dz * dz));
     }
 }

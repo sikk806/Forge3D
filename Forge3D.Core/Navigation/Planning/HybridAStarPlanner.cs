@@ -61,7 +61,8 @@ public sealed class HybridAStarPlanner : IPathPlanner
                 }
 
                 var nextPose = _kinematicModel.Step(current.Pose, steering, step, request.Vehicle);
-                if (!IsInsideBounds(nextPose, request) || _collisionChecker.IsBlocked(nextPose.X, nextPose.Z, request.Vehicle, request.Obstacles))
+                if (!IsInsideBounds(nextPose, request)
+                    || _collisionChecker.IsSegmentBlocked(current.Pose, nextPose, request.Vehicle, request.Obstacles, step * 0.5f))
                 {
                     continue;
                 }

@@ -1,7 +1,6 @@
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
-using Forge3D.Core.Collision;
-using Forge3D.Core.Simulation.Sensors;
+using Forge3D.Contracts.States;
 using Forge3D.Editor.ViewModels;
 using MediaColor = System.Windows.Media.Color;
 using NumericsQuaternion = System.Numerics.Quaternion;
@@ -40,10 +39,10 @@ public sealed class DebugRenderer
 
     private static void AddVelocity(Model3DGroup group, MainViewModel viewModel)
     {
-        foreach (var item in viewModel.Objects.Where(item => !item.Body.IsStatic).Take(MaxDebugBodies))
+        foreach (var item in viewModel.RenderEntities.Where(item => !item.IsStatic).Take(MaxDebugBodies))
         {
-            var start = item.Body.Position;
-            var velocity = item.Body.LinearVelocity;
+            var start = item.Position;
+            var velocity = item.LinearVelocity;
             if (velocity.LengthSquared() > 0.01f)
             {
                 group.Children.Add(MeshFactory.CreateLine(start, start + Vector3.Normalize(velocity) * MathF.Min(velocity.Length() * 0.15f, 1.5f), Colors.Cyan, 0.025f));
@@ -53,7 +52,7 @@ public sealed class DebugRenderer
 
     private static void AddContacts(Model3DGroup group, MainViewModel viewModel)
     {
-        foreach (var contact in viewModel.World.Contacts.Take(MaxDebugContacts))
+        foreach (var contact in viewModel.CurrentSnapshot?.Contacts.Take(MaxDebugContacts) ?? [])
         {
             if (viewModel.ShowContactDebug)
             {
@@ -69,15 +68,21 @@ public sealed class DebugRenderer
 
     private static void AddBounds(Model3DGroup group, MainViewModel viewModel)
     {
-        foreach (var item in viewModel.Objects.Where(item => item.Collider is not PlaneCollider).Take(MaxDebugBodies))
+        foreach (var item in viewModel.RenderEntities.Where(item => item.ColliderType != "Plane").Take(MaxDebugBodies))
         {
-            AddBounds(group, item.Collider.ComputeBounds());
+            AddBounds(group, item);
         }
     }
 
     private static void AddEngineeringVisualization(Model3DGroup group, MainViewModel viewModel)
     {
-        var waypoints = viewModel.Waypoints.ToList();
+        var snapshot = viewModel.CurrentSnapshot;
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        var waypoints = snapshot.Mission.Waypoints.ToList();
         for (var i = 0; i < waypoints.Count; i++)
         {
             var waypoint = waypoints[i];
@@ -90,10 +95,10 @@ public sealed class DebugRenderer
             }
         }
 
-        if (viewModel.SensorFovDebug && viewModel.Sensor is { State: not SensorState.Fault and not SensorState.Offline } sensor)
+        if (viewModel.SensorFovDebug && snapshot.Sensor is { State: not "Fault" and not "Offline" } sensor)
         {
-            var origin = sensor.Owner.Position + new Vector3(0.0f, 0.35f, 0.0f);
-            var forward = Vector3.Normalize(Vector3.Transform(Vector3.UnitZ, sensor.Owner.Orientation));
+            var origin = sensor.OwnerPosition + new Vector3(0.0f, 0.35f, 0.0f);
+            var forward = Vector3.Normalize(Vector3.Transform(Vector3.UnitZ, sensor.OwnerOrientation));
             var left = RotateAroundY(forward, -sensor.FieldOfViewDegrees * 0.5f);
             var right = RotateAroundY(forward, sensor.FieldOfViewDegrees * 0.5f);
             group.Children.Add(MeshFactory.CreateLine(origin, origin + left * sensor.Range, MediaColor.FromRgb(120, 220, 255), 0.02f));
@@ -131,10 +136,10 @@ public sealed class DebugRenderer
         return Vector3.Normalize(Vector3.Transform(vector, NumericsQuaternion.CreateFromAxisAngle(Vector3.UnitY, degrees * MathF.PI / 180.0f)));
     }
 
-    private static void AddBounds(Model3DGroup group, Core.Mathematics.Aabb bounds)
+    private static void AddBounds(Model3DGroup group, EntityStateDto entity)
     {
-        var min = bounds.Min;
-        var max = bounds.Max;
+        var min = entity.Position - entity.HalfExtents;
+        var max = entity.Position + entity.HalfExtents;
         var p = new[]
         {
             new Vector3(min.X, min.Y, min.Z), new Vector3(max.X, min.Y, min.Z),

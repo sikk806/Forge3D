@@ -10,6 +10,15 @@ public sealed class FixedStepRunner
         _world = world;
     }
 
+    public float InterpolationAlpha
+    {
+        get
+        {
+            var fixedDeltaTime = _world.Settings.FixedDeltaTime;
+            return fixedDeltaTime <= 0.0f ? 1.0f : Math.Clamp(_accumulator / fixedDeltaTime, 0.0f, 1.0f);
+        }
+    }
+
     public int Step(float frameDeltaTime)
     {
         if (frameDeltaTime <= 0.0f)
@@ -40,5 +49,6 @@ public sealed class FixedStepRunner
     public void Reset()
     {
         _accumulator = 0.0f;
+        _world.SnapBodyPoses();
     }
 }

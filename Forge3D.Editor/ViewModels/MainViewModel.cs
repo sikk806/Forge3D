@@ -1,51 +1,42 @@
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Numerics;
 using System.Windows.Input;
-using System.Windows.Threading;
 using Forge3D.Core;
 using Forge3D.Core.Constraints;
 using Forge3D.Core.Collision;
-using Forge3D.Core.Data;
-using Forge3D.Core.Data.Capability;
-using Forge3D.Core.Data.Environment;
-using Forge3D.Core.Data.Parsing;
-using Forge3D.Core.Data.Schema;
-using Forge3D.Core.Data.Validation;
 using Forge3D.Core.Diagnostics;
 using Forge3D.Core.Dynamics;
 using Forge3D.Core.Navigation;
-using Forge3D.Core.Navigation.Mobility;
 using Forge3D.Core.Simulation;
 using Forge3D.Core.Simulation.Events;
-using Forge3D.Core.Simulation.Faults;
 using Forge3D.Core.Simulation.Mission;
 using Forge3D.Core.Simulation.Replay;
 using Forge3D.Core.Simulation.Safety;
 using Forge3D.Core.Simulation.Sensors;
 using Forge3D.Core.Simulation.Telemetry;
 using Forge3D.Core.Simulation.Vehicle;
+using Forge3D.Contracts.Commands;
+using Forge3D.Contracts.Connection;
+using Forge3D.Contracts.States;
+using Forge3D.Editor.Connection;
 
 namespace Forge3D.Editor.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
-    private readonly DispatcherTimer _timer;
-    private readonly Stopwatch _frameClock = Stopwatch.StartNew();
-    private readonly FixedStepRunner _fixedStepRunner;
-    private readonly SimulationRuntime _runtime;
+    private readonly ISimulationConnection _connection;
+    private readonly ILocalSimulationDiagnostics? _diagnostics;
+    private readonly PhysicsWorld _fallbackWorld = new();
     private readonly ReplayService _replayService = new();
     private readonly TelemetryRecorder _telemetryRecorder = new();
-    private readonly EventLogService _eventLogService = new();
-    private readonly PathPlannerSelector _pathPlannerSelector = new();
-    private readonly SchemaDetector _schemaDetector = new();
-    private readonly DataValidator _dataValidator = new();
-    private readonly CapabilityDetector _capabilityDetector = new();
-    private readonly EnvironmentBuilder _environmentBuilder = new();
+    private SimulationSnapshot? _snapshot;
     private double _elapsedSimulationTime;
     private SceneObjectViewModel? _selectedObject;
     private EntityViewModel? _selectedEntity;
+    private string? _selectedWaypointId;
+    private EntityStateDto? _copiedEntity;
+    private WaypointStateDto? _copiedWaypoint;
     private bool _syncingSelection;
     private bool _sensorFovDebug = true;
     private bool _isRunning;
@@ -79,6 +70,15 @@ public sealed class MainViewModel : ViewModelBase
     private float _navigationGoalX = 4.5f;
     private float _navigationGoalZ = 2.5f;
     private float _gridResolution = 0.5f;
+    private string _customObstacleName = "Custom_Obstacle";
+    private float _customObstacleX;
+    private float _customObstacleZ;
+    private float _customObstacleWidth = 1.0f;
+    private float _customObstacleDepth = 1.0f;
+    private string _customWaypointName = "Waypoint";
+    private float _customWaypointX;
+    private float _customWaypointZ;
+    private float _customWaypointRadius = 0.8f;
     private float _pathLength;
     private int _expandedNodes;
     private double _planningMilliseconds;
@@ -89,62 +89,263 @@ public sealed class MainViewModel : ViewModelBase
     private Vector3 _torqueInput = new(0.0f, 0.0f, 5.0f);
     private Vector3 _impulseInput = new(0.0f, 7.0f, 0.0f);
     private Vector3 _impulsePointInput = new(0.5f, 0.5f, 0.0f);
-    private int _boxCounter;
-    private int _sphereCounter;
 
     public MainViewModel()
+        : this(CreateDefaultConnection())
     {
-        World = new PhysicsWorld();
-        _fixedStepRunner = new FixedStepRunner(World);
-        _runtime = new SimulationRuntime(World);
+    }
 
-        RunCommand = new RelayCommand(RunSimulation);
-        PauseCommand = new RelayCommand(() => IsRunning = false);
-        StepCommand = new RelayCommand(StepOnce);
-        ResetCommand = new RelayCommand(LoadDropDemo);
-        AddBoxCommand = new RelayCommand(AddBox);
-        AddSphereCommand = new RelayCommand(AddSphere);
-        ApplyForceCommand = new RelayCommand(() => SelectedObject?.Body.ApplyForce(ForceInput));
-        ApplyTorqueCommand = new RelayCommand(() => SelectedObject?.Body.ApplyTorque(TorqueInput));
-        ApplyImpulseCommand = new RelayCommand(() => SelectedObject?.Body.ApplyImpulse(ImpulseInput));
-        ApplyImpulseAtPointCommand = new RelayCommand(() => SelectedObject?.Body.ApplyImpulseAtPoint(ImpulseInput, ImpulsePointInput));
+    public MainViewModel(ISimulationConnection connection)
+    {
+        _connection = connection;
+        _diagnostics = connection as ILocalSimulationDiagnostics;
+        _connection.SnapshotReceived += OnSnapshotReceived;
+
+        RunCommand = new RelayCommand(() => SendCommand(new StartSimulationCommand()));
+        PauseCommand = new RelayCommand(() => SendCommand(new PauseSimulationCommand()));
+        StepCommand = new RelayCommand(() => SendCommand(new StepSimulationCommand()));
+        ResetCommand = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Drop)));
+        AddBoxCommand = new RelayCommand(() => SendCommand(new AddBoxCommand(new Vector3(0.0f, 5.0f, 0.0f), new Vector3(0.5f))));
+        AddSphereCommand = new RelayCommand(() => SendCommand(new AddSphereCommand(new Vector3(0.0f, 5.0f, 0.0f))));
+        ApplyForceCommand = new RelayCommand(() => SendSelectedObjectCommand(id => new ApplyForceCommand(id, ForceInput)));
+        ApplyTorqueCommand = new RelayCommand(() => SendSelectedObjectCommand(id => new ApplyTorqueCommand(id, TorqueInput)));
+        ApplyImpulseCommand = new RelayCommand(() => SendSelectedObjectCommand(id => new ApplyImpulseCommand(id, ImpulseInput)));
+        ApplyImpulseAtPointCommand = new RelayCommand(() => SendSelectedObjectCommand(id => new ApplyImpulseAtPointCommand(id, ImpulseInput, ImpulsePointInput)));
         ClearReplayCommand = new RelayCommand(ClearReplay);
         ExitCommand = new RelayCommand(() => Environment.Exit(0));
-        DropDemoCommand = new RelayCommand(LoadDropDemo);
-        BounceDemoCommand = new RelayCommand(LoadBounceDemo);
-        FrictionDemoCommand = new RelayCommand(LoadFrictionDemo);
-        StackDemoCommand = new RelayCommand(LoadStackDemo);
-        Stress100Command = new RelayCommand(() => LoadStressDemo(100));
-        Stress300Command = new RelayCommand(() => LoadStressDemo(300));
-        Stress500Command = new RelayCommand(() => LoadStressDemo(500));
-        EngineeringScenarioCommand = new RelayCommand(LoadEngineeringScenario);
-        StartMissionCommand = new RelayCommand(StartMission);
-        PauseMissionCommand = new RelayCommand(() => _runtime.MissionController.Pause());
-        ResumeMissionCommand = new RelayCommand(() => _runtime.MissionController.Resume());
-        AbortMissionCommand = new RelayCommand(() => _runtime.MissionController.Abort());
-        ResetMissionCommand = new RelayCommand(ResetMission);
-        StopVehicleCommand = new RelayCommand(() => { if (_runtime.Vehicle is not null) _runtime.VehicleController.Stop(_runtime.Vehicle); });
-        EmergencyStopCommand = new RelayCommand(ManualEmergencyStop);
-        SensorFaultCommand = new RelayCommand(() => ToggleFault(FaultType.SensorFailure));
-        WheelSlipCommand = new RelayCommand(() => ToggleFault(FaultType.WheelSlip));
-        MotorDegradationCommand = new RelayCommand(() => ToggleFault(FaultType.MotorDegradation));
-        CommunicationLossCommand = new RelayCommand(() => ToggleFault(FaultType.CommunicationLoss));
-        ClearFaultsCommand = new RelayCommand(ClearFaults);
-        PlanPathCommand = new RelayCommand(PlanPath);
-        ClearPathCommand = new RelayCommand(ClearPath);
-        ImportDataCommand = new RelayCommand(ImportData);
+        DropDemoCommand = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Drop)));
+        BounceDemoCommand = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Bounce)));
+        FrictionDemoCommand = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Friction)));
+        StackDemoCommand = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Stack)));
+        Stress100Command = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Stress, 100)));
+        Stress300Command = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Stress, 300)));
+        Stress500Command = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Stress, 500)));
+        EngineeringScenarioCommand = new RelayCommand(() => SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Customization)));
+        StartMissionCommand = new RelayCommand(() => SendCommand(new StartMissionCommand()));
+        PauseMissionCommand = new RelayCommand(() => SendCommand(new PauseMissionCommand()));
+        ResumeMissionCommand = new RelayCommand(() => SendCommand(new ResumeMissionCommand()));
+        AbortMissionCommand = new RelayCommand(() => SendCommand(new AbortMissionCommand()));
+        ResetMissionCommand = new RelayCommand(() => SendCommand(new ResetMissionCommand()));
+        StopVehicleCommand = new RelayCommand(() => SendCommand(new StopVehicleCommand()));
+        EmergencyStopCommand = new RelayCommand(() => SendCommand(new EmergencyStopCommand()));
+        SensorFaultCommand = new RelayCommand(() => SendCommand(new ApplyFaultCommand(FaultKind.SensorFailure)));
+        WheelSlipCommand = new RelayCommand(() => SendCommand(new ApplyFaultCommand(FaultKind.WheelSlip)));
+        MotorDegradationCommand = new RelayCommand(() => SendCommand(new ApplyFaultCommand(FaultKind.MotorDegradation)));
+        CommunicationLossCommand = new RelayCommand(() => SendCommand(new ApplyFaultCommand(FaultKind.CommunicationLoss)));
+        ClearFaultsCommand = new RelayCommand(() => SendCommand(new ClearFaultsCommand()));
+        PlanPathCommand = new RelayCommand(() => SendCommand(new PlanPathCommand(
+            NavigationGoalX,
+            NavigationGoalZ,
+            TargetHeading,
+            GridResolution,
+            NormalizeMobility(SelectedMobilityModel) == "CarLike" ? MobilityModelKind.CarLike : MobilityModelKind.Holonomic,
+            NormalizePlanner(SelectedPlanner) switch
+            {
+                "GridAStar" => PlannerKind.GridAStar,
+                "HybridAStar" => PlannerKind.HybridAStar,
+                _ => PlannerKind.Auto
+            })));
+        ClearPathCommand = new RelayCommand(() => SendCommand(new ClearPathCommand()));
+        ImportDataCommand = new RelayCommand(() => SendCommand(new ImportDataCommand(DataImportPath)));
+        AddCustomObstacleCommand = new RelayCommand(() => SendCommand(new AddObstacleCommand(
+            CustomObstacleName,
+            new Vector3(CustomObstacleX, 0.5f, CustomObstacleZ),
+            new Vector3(Math.Max(0.1f, CustomObstacleWidth * 0.5f), 0.5f, Math.Max(0.1f, CustomObstacleDepth * 0.5f)))));
+        AddCustomWaypointCommand = new RelayCommand(() => SendCommand(new AddWaypointCommand(
+            CustomWaypointName,
+            new Vector3(CustomWaypointX, 0.05f, CustomWaypointZ),
+            CustomWaypointRadius)));
+        ClearWaypointsCommand = new RelayCommand(() => SendCommand(new ClearWaypointsCommand()));
         SetKoreanCommand = new RelayCommand(() => SelectedLanguage = "한국어");
         SetEnglishCommand = new RelayCommand(() => SelectedLanguage = "English");
         RefreshLocalizedOptions();
 
-        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        _timer.Tick += OnTick;
-        _timer.Start();
-
-        LoadDropDemo();
+        _connection.ConnectAsync().GetAwaiter().GetResult();
     }
 
-    public PhysicsWorld World { get; }
+    private static ISimulationConnection CreateDefaultConnection()
+    {
+        var mode = Environment.GetEnvironmentVariable("FORGE3D_CONNECTION");
+        if (!string.Equals(mode, "tcp", StringComparison.OrdinalIgnoreCase))
+        {
+            return new LocalSimulationConnection();
+        }
+
+        var host = Environment.GetEnvironmentVariable("FORGE3D_SIM_HOST");
+        var portValue = Environment.GetEnvironmentVariable("FORGE3D_SIM_PORT");
+        var port = int.TryParse(portValue, out var parsedPort) && parsedPort is > 0 and <= 65535
+            ? parsedPort
+            : 47320;
+        return new TcpSimulationConnection(string.IsNullOrWhiteSpace(host) ? "127.0.0.1" : host, port);
+    }
+
+    private SimulationRuntime? Runtime => _diagnostics?.Runtime;
+
+    public PhysicsWorld World => _diagnostics?.World ?? _fallbackWorld;
+
+    public float RenderInterpolationAlpha => _snapshot?.RenderInterpolationAlpha ?? 1.0f;
+
+    public SimulationSnapshot? CurrentSnapshot => _snapshot;
+
+    public IReadOnlyList<EntityStateDto> RenderEntities => _snapshot?.Entities ?? [];
+
+    public EntityStateDto? SelectedObjectState => SelectedObject is null ? null : GetEntityState(SelectedObject.Id);
+
+    public WaypointStateDto? SelectedWaypointState => _selectedWaypointId is null
+        ? null
+        : Waypoints.FirstOrDefault(waypoint => waypoint.Id == _selectedWaypointId);
+
+    public EntityStateDto? GetEntityState(int entityId)
+    {
+        return _snapshot?.Entities.FirstOrDefault(entity => entity.Id == entityId);
+    }
+
+    private void OnSnapshotReceived(object? sender, SimulationSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        _elapsedSimulationTime = snapshot.SimulationTime;
+        IsRunning = snapshot.IsRunning;
+        var sceneChanged = SyncSceneObjects();
+        sceneChanged |= SyncRuntimeEntities();
+        SyncSnapshotCollections(snapshot);
+        RefreshAfterSimulation();
+        if (sceneChanged)
+        {
+            SceneChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
+    private void SendCommand(SimulationCommand command)
+    {
+        _connection.SendCommandAsync(command).GetAwaiter().GetResult();
+    }
+
+    private void SendSelectedObjectCommand(Func<int, SimulationCommand> commandFactory)
+    {
+        if (SelectedObject is not null)
+        {
+            SendCommand(commandFactory(SelectedObject.Id));
+        }
+    }
+
+    private bool SyncSceneObjects()
+    {
+        var selectedId = SelectedObject?.Id;
+        var existingIds = Objects.Select(item => item.Id).ToHashSet();
+        var currentIds = RenderEntities.Select(item => item.Id).ToHashSet();
+        if (existingIds.SetEquals(currentIds))
+        {
+            foreach (var item in Objects)
+            {
+                if (GetEntityState(item.Id) is { } state)
+                {
+                    item.Update(state);
+                }
+            }
+
+            return false;
+        }
+
+        Objects.Clear();
+        foreach (var entity in RenderEntities)
+        {
+            Objects.Add(new SceneObjectViewModel(entity));
+        }
+
+        SelectedObject = selectedId is { } id
+            ? Objects.FirstOrDefault(item => item.Id == id) ?? Objects.FirstOrDefault()
+            : Objects.FirstOrDefault();
+        return true;
+    }
+
+    private bool SyncRuntimeEntities()
+    {
+        var selectedId = SelectedEntity?.Id;
+        var existingIds = Entities.Select(item => item.Id).ToHashSet();
+        var currentIds = _snapshot?.RuntimeEntities.Select(item => item.Id).ToHashSet() ?? [];
+        if (existingIds.SetEquals(currentIds))
+        {
+            foreach (var item in Entities)
+            {
+                var state = _snapshot?.RuntimeEntities.FirstOrDefault(entity => entity.Id == item.Id);
+                if (state is not null)
+                {
+                    item.Update(state);
+                }
+            }
+
+            return false;
+        }
+
+        Entities.Clear();
+        foreach (var entity in _snapshot?.RuntimeEntities ?? [])
+        {
+            Entities.Add(new EntityViewModel(entity));
+        }
+
+        SelectedEntity = selectedId is null
+            ? Entities.FirstOrDefault()
+            : Entities.FirstOrDefault(item => item.Id == selectedId) ?? Entities.FirstOrDefault();
+        return true;
+    }
+
+    private void SyncSnapshotCollections(SimulationSnapshot snapshot)
+    {
+        NavigationPath.Clear();
+        foreach (var point in snapshot.Navigation.Path)
+        {
+            NavigationPath.Add(new PathPoint(point.X, point.Z, point.HeadingDegrees));
+        }
+
+        PathLength = snapshot.Navigation.PathLength;
+        ExpandedNodes = snapshot.Navigation.ExpandedNodes;
+        PlanningMilliseconds = snapshot.Navigation.PlanningMilliseconds;
+
+        DetectedFields.Clear();
+        foreach (var field in snapshot.DataImport.DetectedFields)
+        {
+            DetectedFields.Add(field);
+        }
+
+        DataFormat = snapshot.DataImport.Format;
+        ValidationSummary = snapshot.DataImport.TotalRecords == 0
+            ? "--"
+            : Text(
+                $"전체 {snapshot.DataImport.TotalRecords}, 유효 {snapshot.DataImport.ValidRecords}, 오류 {snapshot.DataImport.InvalidRecords}",
+                $"Records {snapshot.DataImport.TotalRecords}, Valid {snapshot.DataImport.ValidRecords}, Invalid {snapshot.DataImport.InvalidRecords}");
+        CapabilitySummary = snapshot.DataImport.Capabilities.Count == 0 ? "--" : string.Join(", ", snapshot.DataImport.Capabilities);
+        RefreshDetections();
+        RefreshEventLog();
+    }
+
+    private void RefreshAfterSimulation()
+    {
+        SelectedObject?.Refresh();
+        SelectedEntity?.Refresh();
+        RefreshEngineeringTelemetry();
+        RefreshContactDetails();
+        SampleGraph();
+
+        if (IsRecording && !IsReplayMode)
+        {
+            CaptureReplayFrame();
+        }
+
+        OnPropertyChanged(nameof(Stats));
+        NotifyProfilerDisplaysChanged();
+        NotifySelectedObjectDiagnosticsChanged();
+        NotifyHudDisplaysChanged();
+        OnPropertyChanged(nameof(ReplayFrameCount));
+        OnPropertyChanged(nameof(RenderInterpolationAlpha));
+        OnPropertyChanged(nameof(SelectedWaypointState));
+        OnPropertyChanged(nameof(HasClipboard));
+        SimulationAdvanced?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void LoadEngineeringScenario()
+    {
+        SendCommand(new LoadScenarioCommand(SimulationScenarioKind.Engineering));
+    }
 
     public ObservableCollection<SceneObjectViewModel> Objects { get; } = [];
 
@@ -236,6 +437,12 @@ public sealed class MainViewModel : ViewModelBase
 
     public ICommand ImportDataCommand { get; }
 
+    public ICommand AddCustomObstacleCommand { get; }
+
+    public ICommand AddCustomWaypointCommand { get; }
+
+    public ICommand ClearWaypointsCommand { get; }
+
     public ICommand SetKoreanCommand { get; }
 
     public ICommand SetEnglishCommand { get; }
@@ -247,10 +454,12 @@ public sealed class MainViewModel : ViewModelBase
         {
             if (SetProperty(ref _selectedObject, value) && !_syncingSelection && value is not null)
             {
+                _selectedWaypointId = null;
                 _syncingSelection = true;
-                SelectedEntity = Entities.FirstOrDefault(item => ReferenceEquals(item.Entity.PhysicsBody, value.Body));
+                SelectedEntity = Entities.FirstOrDefault(item => item.PhysicsEntityId == value.Id);
                 _syncingSelection = false;
                 NotifySelectedObjectDisplayChanged();
+                OnPropertyChanged(nameof(SelectedWaypointState));
             }
             else
             {
@@ -266,11 +475,19 @@ public sealed class MainViewModel : ViewModelBase
         get => _selectedEntity;
         set
         {
-            if (SetProperty(ref _selectedEntity, value) && !_syncingSelection && value?.Entity.PhysicsBody is not null)
+            if (SetProperty(ref _selectedEntity, value) && !_syncingSelection && value?.PhysicsEntityId is { } physicsEntityId)
             {
+                _selectedWaypointId = null;
                 _syncingSelection = true;
-                SelectedObject = Objects.FirstOrDefault(item => ReferenceEquals(item.Body, value.Entity.PhysicsBody));
+                SelectedObject = Objects.FirstOrDefault(item => item.Id == physicsEntityId);
                 _syncingSelection = false;
+                OnPropertyChanged(nameof(SelectedWaypointState));
+            }
+            else if (value?.Type == "Waypoint")
+            {
+                _selectedWaypointId = value.Id;
+                SelectedObject = null;
+                OnPropertyChanged(nameof(SelectedWaypointState));
             }
         }
     }
@@ -429,6 +646,12 @@ public sealed class MainViewModel : ViewModelBase
 
     public string MenuImportData => Text("데이터 가져오기", "Import Data");
 
+    public string MenuDelete => Text("삭제", "Delete");
+
+    public string MenuCopy => Text("복사", "Copy");
+
+    public string MenuPaste => Text("붙여넣기", "Paste");
+
     public string MenuExit => Text("종료", "Exit");
 
     public string MenuLanguage => Text("언어", "Language");
@@ -509,6 +732,12 @@ public sealed class MainViewModel : ViewModelBase
 
     public string ButtonImportData => Text("데이터 가져오기", "Import Data");
 
+    public string ButtonAddObstacle => Text("장애물 추가", "Add Obstacle");
+
+    public string ButtonAddWaypoint => Text("웨이포인트 추가", "Add Waypoint");
+
+    public string ButtonClearWaypoints => Text("웨이포인트 지우기", "Clear Waypoints");
+
     public string HeaderSceneHierarchy => Text("장면 계층", "Scene Hierarchy");
 
     public string HeaderPhysicsBodies => Text("물리 바디", "Physics Bodies");
@@ -540,6 +769,12 @@ public sealed class MainViewModel : ViewModelBase
     public string HeaderFaultInjection => Text("고장 주입", "Fault Injection");
 
     public string HeaderDataAnalysis => Text("데이터 분석", "Data Analysis");
+
+    public string HeaderCustomization => Text("커스터마이징", "Customization");
+
+    public string HeaderCustomObstacles => Text("직접 장애물", "Manual Obstacles");
+
+    public string HeaderCustomWaypoints => Text("직접 웨이포인트", "Manual Waypoints");
 
     public string HeaderEventsAlarms => Text("이벤트 / 알람", "Events / Alarms");
 
@@ -617,7 +852,17 @@ public sealed class MainViewModel : ViewModelBase
 
     public string ButtonStack => Text("쌓기", "Stack");
 
-    public string ButtonEngineering => Text("엔지니어링", "Engineering");
+    public string ButtonEngineering => Text("커스터마이징", "Customization");
+
+    public string LabelName => Text("이름", "Name");
+
+    public string LabelObstacleXZ => Text("장애물 X / Z", "Obstacle X / Z");
+
+    public string LabelObstacleSize => Text("장애물 폭 / 깊이", "Obstacle Width / Depth");
+
+    public string LabelWaypointXZ => Text("웨이포인트 X / Z", "Waypoint X / Z");
+
+    public string LabelWaypointRadius => Text("도착 반경", "Reach Radius");
 
     public string LabelStatic => Text("고정", "Static");
 
@@ -701,6 +946,26 @@ public sealed class MainViewModel : ViewModelBase
 
     public string CapabilitySummaryDisplay => Text($"기능: {CapabilitySummary}", $"Capabilities: {CapabilitySummary}");
 
+    public string HudTitle => Vehicle is not null
+        ? Text("차량 상태", "Vehicle Status")
+        : Text("선택 상태", "Selection Status");
+
+    public string HudTargetDisplay => Text($"대상: {HudTargetName}", $"Target: {HudTargetName}");
+
+    public string HudPositionDisplay => Text($"위치: {FormatVector(HudPosition)}", $"Position: {FormatVector(HudPosition)}");
+
+    public string HudSpeedDisplay => Text($"속도: {HudSpeed:F2} m/s", $"Speed: {HudSpeed:F2} m/s");
+
+    public string HudHeadingDisplay => Text($"방향: {HudHeading:F1}도", $"Heading: {HudHeading:F1} deg");
+
+    public string HudTargetSpeedDisplay => Text($"목표 속도: {HudTargetSpeed:F2} m/s", $"Target Speed: {HudTargetSpeed:F2} m/s");
+
+    public string HudTargetHeadingDisplay => Text($"목표 방향: {HudTargetHeading:F1}도", $"Target Heading: {HudTargetHeading:F1} deg");
+
+    public string HudMissionDisplay => Text($"미션: {MissionState}", $"Mission: {MissionState}");
+
+    public string HudWaypointDisplay => Text($"웨이포인트: {CurrentWaypointName}", $"Waypoint: {CurrentWaypointName}");
+
     public double Fps
     {
         get => _fps;
@@ -713,51 +978,87 @@ public sealed class MainViewModel : ViewModelBase
         }
     }
 
-    public PhysicsStepStats Stats => World.LastStepStats;
+    public PhysicsStepStats Stats => _snapshot is null
+        ? World.LastStepStats
+        : new PhysicsStepStats(
+            _snapshot.PhysicsStats.BodyCount,
+            TimeSpan.FromMilliseconds(_snapshot.PhysicsStats.TotalPhysicsMilliseconds),
+            _snapshot.PhysicsStats.ColliderCount,
+            _snapshot.PhysicsStats.PotentialPairCount,
+            _snapshot.PhysicsStats.CandidatePairCount,
+            _snapshot.PhysicsStats.ContactCount,
+            TimeSpan.FromMilliseconds(_snapshot.PhysicsStats.BroadPhaseMilliseconds),
+            TimeSpan.FromMilliseconds(_snapshot.PhysicsStats.NarrowPhaseMilliseconds),
+            SolverTime: TimeSpan.FromMilliseconds(_snapshot.PhysicsStats.SolverMilliseconds));
 
-    public IReadOnlyList<SimulationEntity> SimulationEntities => _runtime.Entities.ToList();
+    public IReadOnlyList<RuntimeEntityStateDto> SimulationEntities => _snapshot?.RuntimeEntities ?? [];
 
-    public IReadOnlyList<WaypointEntity> Waypoints => _runtime.MissionController.Waypoints;
+    public IReadOnlyList<WaypointStateDto> Waypoints => _snapshot?.Mission.Waypoints ?? [];
 
-    public VehicleEntity? Vehicle => _runtime.Vehicle;
+    public bool HasClipboard => _copiedEntity is not null || _copiedWaypoint is not null;
 
-    public SensorEntity? Sensor => _runtime.Sensor;
+    public VehicleStateDto? Vehicle => _snapshot?.Vehicle;
 
-    public string MissionState => _runtime.MissionController.State.ToString();
+    private string HudTargetName => Vehicle?.Name ?? SelectedObject?.Name ?? LabelNoSelection;
 
-    public string CurrentWaypointName => _runtime.MissionController.CurrentWaypoint?.Name ?? "--";
+    private Vector3 HudPosition => Vehicle?.Position ?? SelectedObjectState?.Position ?? Vector3.Zero;
 
-    public float MissionProgress => _runtime.MissionController.Progress * 100.0f;
+    private float HudSpeed
+    {
+        get
+        {
+            if (Vehicle?.PhysicsEntityId is { } vehicleEntityId && GetEntityState(vehicleEntityId) is { } vehicleState)
+            {
+                return vehicleState.LinearVelocity.Length();
+            }
+
+            return SelectedObjectState?.LinearVelocity.Length() ?? 0.0f;
+        }
+    }
+
+    private float HudHeading => Vehicle?.HeadingDegrees ?? ToHeadingDegrees(SelectedObjectState?.Orientation ?? Quaternion.Identity);
+
+    private float HudTargetSpeed => Vehicle?.TargetSpeed ?? 0.0f;
+
+    private float HudTargetHeading => Vehicle?.TargetHeadingDegrees ?? HudHeading;
+
+    public SensorStateDto? Sensor => _snapshot?.Sensor;
+
+    public string MissionState => _snapshot?.Mission.State ?? "--";
+
+    public string CurrentWaypointName => _snapshot?.Mission.CurrentWaypoint?.Name ?? "--";
+
+    public float MissionProgress => (_snapshot?.Mission.Progress ?? 0.0f) * 100.0f;
 
     public string DistanceToWaypoint
     {
         get
         {
-            if (_runtime.Vehicle is null || _runtime.MissionController.CurrentWaypoint is null)
+            if (_snapshot?.Vehicle is null || _snapshot.Mission.CurrentWaypoint is null)
             {
                 return "--";
             }
 
-            return $"{(_runtime.MissionController.CurrentWaypoint.Position - _runtime.Vehicle.Position).Length():F2} m";
+            return $"{(_snapshot.Mission.CurrentWaypoint.Position - _snapshot.Vehicle.Position).Length():F2} m";
         }
     }
 
-    public string SafetyState => _runtime.SafetyResult.State.ToString();
+    public string SafetyState => _snapshot?.Safety.State ?? "--";
 
-    public string SafetyTarget => string.IsNullOrWhiteSpace(_runtime.SafetyResult.TargetName) ? "--" : _runtime.SafetyResult.TargetName;
+    public string SafetyTarget => string.IsNullOrWhiteSpace(_snapshot?.Safety.TargetName) ? "--" : _snapshot.Safety.TargetName;
 
-    public string SafetyDistance => _runtime.SafetyResult.State == Core.Simulation.Safety.SafetyState.Safe ? "--" : $"{_runtime.SafetyResult.Distance:F2} m";
+    public string SafetyDistance => _snapshot is null || _snapshot.Safety.State == "Safe" ? "--" : $"{_snapshot.Safety.Distance:F2} m";
 
-    public string TimeToCollision => _runtime.SafetyResult.TimeToCollisionSeconds is { } value ? $"{value:F2} s" : "--";
+    public string TimeToCollision => _snapshot?.Safety.TimeToCollisionSeconds is { } value ? $"{value:F2} s" : "--";
 
     public float TargetSpeed
     {
-        get => _runtime.Vehicle?.TargetSpeed ?? 0.0f;
+        get => _snapshot?.Vehicle?.TargetSpeed ?? 0.0f;
         set
         {
-            if (_runtime.Vehicle is not null)
+            if (_snapshot?.Vehicle is not null)
             {
-                _runtime.Vehicle.TargetSpeed = value;
+                SendCommand(new SetVehicleTargetCommand(value, _snapshot.Vehicle.TargetHeadingDegrees));
                 OnPropertyChanged();
             }
         }
@@ -765,12 +1066,12 @@ public sealed class MainViewModel : ViewModelBase
 
     public float TargetHeading
     {
-        get => _runtime.Vehicle?.TargetHeadingDegrees ?? 0.0f;
+        get => _snapshot?.Vehicle?.TargetHeadingDegrees ?? 0.0f;
         set
         {
-            if (_runtime.Vehicle is not null)
+            if (_snapshot?.Vehicle is not null)
             {
-                _runtime.Vehicle.TargetHeadingDegrees = value;
+                SendCommand(new SetVehicleTargetCommand(_snapshot.Vehicle.TargetSpeed, value));
                 OnPropertyChanged();
             }
         }
@@ -833,9 +1134,63 @@ public sealed class MainViewModel : ViewModelBase
         get => World.Settings.FixedDeltaTime;
         set
         {
-            World.Settings.FixedDeltaTime = Math.Clamp(value, 1.0f / 240.0f, 1.0f / 15.0f);
+            SendCommand(new SetPhysicsSettingsCommand(Math.Clamp(value, 1.0f / 240.0f, 1.0f / 15.0f), World.Gravity.Y));
             OnPropertyChanged();
         }
+    }
+
+    public string CustomObstacleName
+    {
+        get => _customObstacleName;
+        set => SetProperty(ref _customObstacleName, value);
+    }
+
+    public float CustomObstacleX
+    {
+        get => _customObstacleX;
+        set => SetProperty(ref _customObstacleX, value);
+    }
+
+    public float CustomObstacleZ
+    {
+        get => _customObstacleZ;
+        set => SetProperty(ref _customObstacleZ, value);
+    }
+
+    public float CustomObstacleWidth
+    {
+        get => _customObstacleWidth;
+        set => SetProperty(ref _customObstacleWidth, Math.Max(0.2f, value));
+    }
+
+    public float CustomObstacleDepth
+    {
+        get => _customObstacleDepth;
+        set => SetProperty(ref _customObstacleDepth, Math.Max(0.2f, value));
+    }
+
+    public string CustomWaypointName
+    {
+        get => _customWaypointName;
+        set => SetProperty(ref _customWaypointName, value);
+    }
+
+    public float CustomWaypointX
+    {
+        get => _customWaypointX;
+        set => SetProperty(ref _customWaypointX, value);
+    }
+
+    public float CustomWaypointZ
+    {
+        get => _customWaypointZ;
+        set => SetProperty(ref _customWaypointZ, value);
+    }
+
+    public float CustomWaypointRadius
+    {
+        get => _customWaypointRadius;
+        set => SetProperty(ref _customWaypointRadius, Math.Clamp(value, 0.2f, 5.0f));
     }
 
     public float GravityY
@@ -843,7 +1198,7 @@ public sealed class MainViewModel : ViewModelBase
         get => World.Gravity.Y;
         set
         {
-            World.Gravity = new Vector3(World.Gravity.X, value, World.Gravity.Z);
+            SendCommand(new SetPhysicsSettingsCommand(World.Settings.FixedDeltaTime, value));
             OnPropertyChanged();
         }
     }
@@ -1035,322 +1390,260 @@ public sealed class MainViewModel : ViewModelBase
         SelectedObject = Objects.FirstOrDefault(item => item.Id == colliderId);
         if (SelectedObject is not null)
         {
-            SelectedEntity = Entities.FirstOrDefault(item => ReferenceEquals(item.Entity.PhysicsBody, SelectedObject.Body));
+            SelectedEntity = Entities.FirstOrDefault(item => item.PhysicsEntityId == SelectedObject.Id);
         }
         RefreshContactDetails();
         ResetGraphSamples();
     }
 
-    private void OnTick(object? sender, EventArgs e)
+    public void SelectWaypoint(string waypointId)
     {
-        var elapsed = _frameClock.Elapsed.TotalSeconds;
-        _frameClock.Restart();
-
-        if (elapsed > 0.0)
-        {
-            Fps = 1.0 / elapsed;
-        }
-
-        if (IsReplayMode)
-        {
-            AdvanceReplay((float)Math.Min(elapsed, 0.1));
-            RefreshAfterSimulation();
-        }
-        else if (IsRunning)
-        {
-            UpdateEngineeringSystems(World.Settings.FixedDeltaTime);
-            var steps = _fixedStepRunner.Step((float)Math.Min(elapsed, 0.1));
-            _elapsedSimulationTime += steps * World.Settings.FixedDeltaTime;
-            RefreshAfterSimulation();
-        }
-    }
-
-    private void StepOnce()
-    {
-        IsReplayMode = false;
-        World.Step(World.Settings.FixedDeltaTime);
-        _elapsedSimulationTime += World.Settings.FixedDeltaTime;
-        RefreshAfterSimulation();
-        Status = Text("한 단계 실행", "Stepped");
-    }
-
-    private void RefreshAfterSimulation()
-    {
-        SelectedObject?.Refresh();
-        SelectedEntity?.Refresh();
-        RefreshEngineeringTelemetry();
-        RefreshContactDetails();
-        SampleGraph();
-
-        if (IsRecording && !IsReplayMode)
-        {
-            CaptureReplayFrame();
-        }
-
-        OnPropertyChanged(nameof(Stats));
-        NotifyProfilerDisplaysChanged();
-        NotifySelectedObjectDiagnosticsChanged();
-        OnPropertyChanged(nameof(ReplayFrameCount));
-        SimulationAdvanced?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void UpdateEngineeringSystems(float deltaTime)
-    {
-        foreach (var item in _runtime.UpdateEngineeringSystems(deltaTime, _elapsedSimulationTime))
-        {
-            AddEvent(item.Severity, item.Source, item.Code, item.Message);
-        }
-
-        RefreshDetections();
-    }
-
-    private void LoadDropDemo()
-    {
-        ResetWorld();
-        AddGround();
-        AddSphere(new Vector3(-1.2f, 5.0f, 0.0f), PhysicsMaterial.Rubber);
-        AddBox(new Vector3(1.1f, 4.0f, 0.0f), new Vector3(0.6f, 0.6f, 0.6f), PhysicsMaterial.Steel);
-        IsRunning = false;
-        Status = Text("낙하 데모", "Drop Demo");
-        NotifySceneChanged();
-    }
-
-    private void LoadBounceDemo()
-    {
-        ResetWorld();
-        AddGround();
-        AddSphere(new Vector3(-2.0f, 5.0f, 0.0f), new PhysicsMaterial(0.4f, 0.1f), "Restitution 0.1");
-        AddSphere(new Vector3(0.0f, 5.0f, 0.0f), new PhysicsMaterial(0.4f, 0.5f), "Restitution 0.5");
-        AddSphere(new Vector3(2.0f, 5.0f, 0.0f), new PhysicsMaterial(0.4f, 0.9f), "Restitution 0.9");
-        IsRunning = false;
-        Status = Text("반발 데모", "Bounce Demo");
-        NotifySceneChanged();
-    }
-
-    private void LoadFrictionDemo()
-    {
-        ResetWorld();
-        AddGround();
-        AddBox(new Vector3(-2.0f, 1.2f, 0.0f), new Vector3(0.5f), PhysicsMaterial.Ice, "Ice Box").Body.LinearVelocity = new Vector3(5.0f, 0.0f, 0.0f);
-        AddBox(new Vector3(0.0f, 1.2f, 0.0f), new Vector3(0.5f), PhysicsMaterial.Steel, "Steel Box").Body.LinearVelocity = new Vector3(5.0f, 0.0f, 0.0f);
-        AddBox(new Vector3(2.0f, 1.2f, 0.0f), new Vector3(0.5f), PhysicsMaterial.Rubber, "Rubber Box").Body.LinearVelocity = new Vector3(5.0f, 0.0f, 0.0f);
-        IsRunning = false;
-        Status = Text("마찰 데모", "Friction Demo");
-        NotifySceneChanged();
-    }
-
-    private void LoadStackDemo()
-    {
-        ResetWorld();
-        AddGround();
-
-        for (var row = 0; row < 4; row++)
-        {
-            for (var col = 0; col <= row; col++)
-            {
-                AddBox(new Vector3((col - row * 0.5f) * 1.05f, 0.6f + row * 1.05f, 0.0f), new Vector3(0.5f), PhysicsMaterial.Steel);
-            }
-        }
-
-        IsRunning = false;
-        Status = Text("쌓기 데모", "Stack Demo");
-        NotifySceneChanged();
-    }
-
-    private void LoadStressDemo(int count)
-    {
-        ResetWorld();
-        AddGround();
-
-        var columns = (int)Math.Ceiling(Math.Sqrt(count));
-        for (var i = 0; i < count; i++)
-        {
-            var x = (i % columns - columns * 0.5f) * 0.75f;
-            var y = 2.0f + (i / columns) * 0.8f;
-            var z = ((i / 7) % 9 - 4) * 0.75f;
-
-            if (i % 2 == 0)
-            {
-                AddBox(new Vector3(x, y, z), new Vector3(0.28f), PhysicsMaterial.Steel);
-            }
-            else
-            {
-                AddSphere(new Vector3(x, y, z), PhysicsMaterial.Rubber);
-            }
-        }
-
-        IsRunning = false;
-        Status = Text($"스트레스 {count}", $"Stress {count}");
-        NotifySceneChanged();
-    }
-
-    private void LoadEngineeringScenario()
-    {
-        ResetWorld();
-        AddGround();
-
-        var vehicleMaterial = new PhysicsMaterial(0.45f, 0.05f);
-        var vehicleBody = new RigidBody("Vehicle_01", new Vector3(-6.0f, 0.45f, -4.0f))
-        {
-            Material = vehicleMaterial,
-            HalfExtents = new Vector3(0.55f, 0.35f, 0.85f),
-            Mass = 8.0f,
-            LinearDamping = 0.6f,
-            AngularDamping = 2.5f,
-            Constraints = MotionConstraints.PlanarXZ
-        };
-        var vehicleCollider = new BoxCollider(vehicleBody, vehicleBody.HalfExtents, vehicleMaterial);
-        var vehicleObject = Register(vehicleCollider);
-        _runtime.Vehicle = new VehicleEntity("vehicle-01", "Vehicle_01", vehicleBody);
-        RegisterEntity(_runtime.Vehicle);
-
-        _runtime.Sensor = new SensorEntity("sensor-01", "Sensor_01", _runtime.Vehicle)
-        {
-            Range = 8.0f,
-            FieldOfViewDegrees = 75.0f,
-            UpdateRateHz = 12.0f
-        };
-        RegisterEntity(_runtime.Sensor);
-
-        AddObstacle("Obstacle_01", new Vector3(-1.0f, 0.5f, -2.0f));
-        AddObstacle("Obstacle_02", new Vector3(3.0f, 0.5f, 1.8f));
-
-        var waypoints = new[]
-        {
-            new WaypointEntity("wp-01", "Waypoint_01", new Vector3(-3.0f, 0.05f, -3.0f), 1),
-            new WaypointEntity("wp-02", "Waypoint_02", new Vector3(2.0f, 0.05f, -2.0f), 2),
-            new WaypointEntity("wp-03", "Waypoint_03", new Vector3(4.5f, 0.05f, 2.5f), 3)
-        };
-
-        foreach (var waypoint in waypoints)
-        {
-            RegisterEntity(waypoint);
-        }
-
-        _runtime.MissionController.SetWaypoints(waypoints);
-        SelectedObject = vehicleObject;
-        SelectedEntity = Entities.FirstOrDefault(item => ReferenceEquals(item.Entity, _runtime.Vehicle));
-        Status = Text("자율 주행 안전 테스트", "Autonomous Vehicle Safety Test");
-        AddEvent(EventSeverity.Info, "Scenario", "LOAD", "Engineering scenario loaded");
-        NotifySceneChanged();
-        EngineeringSceneChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void AddObstacle(string name, Vector3 position)
-    {
-        AddObstacle(name, position, new Vector3(0.6f));
-    }
-
-    private void AddObstacle(string name, Vector3 position, Vector3 halfExtents)
-    {
-        var material = new PhysicsMaterial(0.8f, 0.05f);
-        var body = new RigidBody(name, position)
-        {
-            IsStatic = true,
-            Material = material,
-            HalfExtents = halfExtents
-        };
-        Register(new BoxCollider(body, body.HalfExtents, material));
-        RegisterEntity(new SimulationEntity(name.ToLowerInvariant(), name, EntityType.Obstacle) { PhysicsBody = body });
-    }
-
-    private void AddBox()
-    {
-        AddBox(new Vector3(0.0f, 5.0f, 0.0f), new Vector3(0.5f), PhysicsMaterial.Steel);
-        NotifySceneChanged();
-    }
-
-    private SceneObjectViewModel AddBox(Vector3 position, Vector3 halfExtents, PhysicsMaterial material, string? name = null)
-    {
-        var body = new RigidBody(name ?? $"Box_{++_boxCounter:000}", position)
-        {
-            Material = material,
-            HalfExtents = halfExtents,
-            Mass = 1.5f
-        };
-        var collider = new BoxCollider(body, halfExtents, material);
-        return Register(collider);
-    }
-
-    private void AddSphere()
-    {
-        AddSphere(new Vector3(0.0f, 5.0f, 0.0f), PhysicsMaterial.Rubber);
-        NotifySceneChanged();
-    }
-
-    private SceneObjectViewModel AddSphere(Vector3 position, PhysicsMaterial material, string? name = null)
-    {
-        var body = new RigidBody(name ?? $"Sphere_{++_sphereCounter:000}", position)
-        {
-            Material = material,
-            Mass = 1.0f
-        };
-        var collider = new SphereCollider(body, 0.45f, material);
-        return Register(collider);
-    }
-
-    private SceneObjectViewModel AddGround()
-    {
-        var material = new PhysicsMaterial(0.65f, 0.2f);
-        var body = new RigidBody("Ground", Vector3.Zero)
-        {
-            IsStatic = true,
-            Material = material
-        };
-        return Register(new PlaneCollider(body, Vector3.UnitY, material: material));
-    }
-
-    private SceneObjectViewModel Register(Collider collider)
-    {
-        World.AddCollider(collider);
-        var item = new SceneObjectViewModel(collider);
-        Objects.Add(item);
-        SelectedObject ??= item;
-        return item;
-    }
-
-    private void ResetWorld()
-    {
-        IsRunning = false;
-        IsReplayMode = false;
-        _fixedStepRunner.Reset();
-        World.Clear();
-        Objects.Clear();
+        _selectedWaypointId = waypointId;
         SelectedObject = null;
-        _boxCounter = 0;
-        _sphereCounter = 0;
-        _elapsedSimulationTime = 0.0;
-        _runtime.Reset();
-        Entities.Clear();
-        DetectionDetails.Clear();
-        ClearReplay();
-        GraphSamples.Clear();
-        ContactDetails.Clear();
+        SelectedEntity = null;
+        OnPropertyChanged(nameof(SelectedWaypointState));
+        NotifySelectedObjectDisplayChanged();
     }
 
-    private void NotifySceneChanged()
+    public bool CanDeleteObject(int entityId)
     {
-        World.RefreshStats();
-        SceneChanged?.Invoke(this, EventArgs.Empty);
-        RefreshAfterSimulation();
+        return GetEntityState(entityId) is { ColliderType: not "Plane" };
     }
 
-    private void RegisterEntity(SimulationEntity entity)
+    public bool CanCopyObject(int entityId)
     {
-        _runtime.Entities.Add(entity);
-        Entities.Add(new EntityViewModel(entity));
+        return GetEntityState(entityId) is { ColliderType: "Box" or "Sphere" };
     }
 
-    private void RunSimulation()
+    public bool CanDeleteWaypoint(string waypointId)
     {
-        if (_runtime.Vehicle is not null
-            && _runtime.MissionController.State is Core.Simulation.Mission.MissionState.Ready or Core.Simulation.Mission.MissionState.Paused)
+        return Waypoints.Any(waypoint => waypoint.Id == waypointId);
+    }
+
+    public bool CanCopyWaypoint(string waypointId)
+    {
+        return Waypoints.Any(waypoint => waypoint.Id == waypointId);
+    }
+
+    public bool CanDeleteRuntimeEntity(string entityId)
+    {
+        return SimulationEntities.Any(entity => entity.Id == entityId);
+    }
+
+    public bool CanCopyRuntimeEntity(string entityId)
+    {
+        var entity = SimulationEntities.FirstOrDefault(item => item.Id == entityId);
+        if (entity is null)
         {
-            StartMission();
+            return false;
+        }
+
+        return entity.EntityType == "Waypoint"
+            || (entity.PhysicsEntityId is { } physicsEntityId && CanCopyObject(physicsEntityId));
+    }
+
+    public void DeleteObject(int entityId)
+    {
+        if (!CanDeleteObject(entityId))
+        {
             return;
         }
 
-        IsRunning = true;
+        SendCommand(new DeleteEntityCommand(entityId));
+        if (SelectedObject?.Id == entityId)
+        {
+            SelectedObject = null;
+            SelectedEntity = null;
+        }
+    }
+
+    public void DeleteWaypoint(string waypointId)
+    {
+        if (!CanDeleteWaypoint(waypointId))
+        {
+            return;
+        }
+
+        SendCommand(new DeleteWaypointCommand(waypointId));
+        if (_selectedWaypointId == waypointId)
+        {
+            _selectedWaypointId = null;
+            OnPropertyChanged(nameof(SelectedWaypointState));
+        }
+    }
+
+    public void DeleteRuntimeEntity(string entityId)
+    {
+        if (!CanDeleteRuntimeEntity(entityId))
+        {
+            return;
+        }
+
+        SendCommand(new DeleteRuntimeEntityCommand(entityId));
+        if (SelectedEntity?.Id == entityId)
+        {
+            SelectedEntity = null;
+        }
+    }
+
+    public void DeleteSelection()
+    {
+        if (SelectedObject is not null)
+        {
+            DeleteObject(SelectedObject.Id);
+            return;
+        }
+
+        if (_selectedWaypointId is not null)
+        {
+            DeleteWaypoint(_selectedWaypointId);
+            return;
+        }
+
+        if (SelectedEntity is not null)
+        {
+            DeleteRuntimeEntity(SelectedEntity.Id);
+        }
+    }
+
+    public void CopyObject(int entityId)
+    {
+        var state = GetEntityState(entityId);
+        if (state is null || !CanCopyObject(entityId))
+        {
+            return;
+        }
+
+        _copiedEntity = state;
+        _copiedWaypoint = null;
+        OnPropertyChanged(nameof(HasClipboard));
+    }
+
+    public void CopyWaypoint(string waypointId)
+    {
+        var waypoint = Waypoints.FirstOrDefault(item => item.Id == waypointId);
+        if (waypoint is null)
+        {
+            return;
+        }
+
+        _copiedWaypoint = waypoint;
+        _copiedEntity = null;
+        OnPropertyChanged(nameof(HasClipboard));
+    }
+
+    public void CopyRuntimeEntity(string entityId)
+    {
+        var entity = SimulationEntities.FirstOrDefault(item => item.Id == entityId);
+        if (entity is null)
+        {
+            return;
+        }
+
+        if (entity.EntityType == "Waypoint")
+        {
+            CopyWaypoint(entity.Id);
+            return;
+        }
+
+        if (entity.PhysicsEntityId is { } physicsEntityId)
+        {
+            CopyObject(physicsEntityId);
+        }
+    }
+
+    public void CopySelection()
+    {
+        if (_selectedWaypointId is not null)
+        {
+            CopyWaypoint(_selectedWaypointId);
+            return;
+        }
+
+        if (SelectedObject is not null)
+        {
+            CopyObject(SelectedObject.Id);
+            return;
+        }
+
+        if (SelectedEntity is not null)
+        {
+            CopyRuntimeEntity(SelectedEntity.Id);
+        }
+    }
+
+    public void PasteClipboardOffset()
+    {
+        if (_copiedWaypoint is not null)
+        {
+            PasteAt(_copiedWaypoint.Position + new Vector3(0.75f, 0.0f, 0.75f));
+            return;
+        }
+
+        if (_copiedEntity is not null)
+        {
+            PasteAt(_copiedEntity.Position + new Vector3(0.75f, 0.0f, 0.75f));
+        }
+    }
+
+    public void PasteAt(Vector3 groundPosition)
+    {
+        if (_copiedWaypoint is not null)
+        {
+            SendCommand(new AddWaypointCommand(
+                $"{_copiedWaypoint.Name} Copy",
+                new Vector3(groundPosition.X, 0.05f, groundPosition.Z),
+                _copiedWaypoint.AcceptanceRadius));
+            return;
+        }
+
+        if (_copiedEntity is null)
+        {
+            return;
+        }
+
+        var position = new Vector3(groundPosition.X, _copiedEntity.Position.Y, groundPosition.Z);
+        SendCommand(new PasteEntityCommand(
+            $"{_copiedEntity.Name} Copy",
+            _copiedEntity.ColliderType,
+            position,
+            _copiedEntity.Orientation,
+            _copiedEntity.HalfExtents,
+            _copiedEntity.Radius,
+            _copiedEntity.IsStatic,
+            Math.Max(0.01f, _copiedEntity.Mass),
+            _copiedEntity.Friction,
+            _copiedEntity.Restitution,
+            _copiedEntity.LinearDamping,
+            _copiedEntity.AngularDamping));
+    }
+
+    public void SnapRenderState()
+    {
+        SendCommand(new PauseSimulationCommand());
+        OnPropertyChanged(nameof(RenderInterpolationAlpha));
+    }
+
+    public void MoveSelectedObjectTo(Vector3 position)
+    {
+        if (SelectedObject is null)
+        {
+            return;
+        }
+
+        var state = SelectedObjectState;
+        if (state is null)
+        {
+            return;
+        }
+
+        SendCommand(new SetEntityPoseCommand(SelectedObject.Id, position, state.Orientation));
+        SelectedObject.Refresh();
+    }
+
+    public void MoveWaypointTo(string waypointId, Vector3 position)
+    {
+        SendCommand(new SetWaypointPositionCommand(waypointId, new Vector3(position.X, 0.05f, position.Z)));
     }
 
     private void ApplyWorkspaceVisibility()
@@ -1360,171 +1653,6 @@ public sealed class MainViewModel : ViewModelBase
         IsEventPanelVisible = workspace != "PhysicsLab";
         IsReplayVisible = true;
         IsGraphVisible = true;
-    }
-
-    private void PlanPath()
-    {
-        if (_runtime.Vehicle is null)
-        {
-            LoadEngineeringScenario();
-        }
-
-        if (_runtime.Vehicle is null)
-        {
-            return;
-        }
-
-        NavigationStartX = _runtime.Vehicle.Position.X;
-        NavigationStartZ = _runtime.Vehicle.Position.Z;
-        var mobility = NormalizeMobility(SelectedMobilityModel) == "CarLike" ? MobilityModelType.CarLike : MobilityModelType.Holonomic;
-        var plannerSelection = NormalizePlanner(SelectedPlanner) switch
-        {
-            "GridAStar" => PlannerSelection.GridAStar,
-            "HybridAStar" => PlannerSelection.HybridAStar,
-            _ => PlannerSelection.Auto
-        };
-
-        var planner = _pathPlannerSelector.Select(mobility, plannerSelection);
-        var result = planner.Plan(new PathRequest
-        {
-            Start = new NavigationPose(NavigationStartX, NavigationStartZ, _runtime.Vehicle.HeadingDegrees),
-            Goal = new NavigationPose(NavigationGoalX, NavigationGoalZ, TargetHeading),
-            GridResolution = GridResolution,
-            Vehicle = new VehicleNavigationProfile
-            {
-                Width = _runtime.Vehicle.PhysicsBody?.HalfExtents.X * 2.0f ?? 1.1f,
-                Length = _runtime.Vehicle.PhysicsBody?.HalfExtents.Z * 2.0f ?? 1.7f,
-                Wheelbase = 1.2f,
-                MaxSteeringAngleDegrees = 30.0f
-            },
-            Obstacles = BuildNavigationObstacles()
-        });
-
-        NavigationPath.Clear();
-        foreach (var point in result.Points)
-        {
-            NavigationPath.Add(point);
-        }
-
-        PathLength = result.PathLength;
-        ExpandedNodes = result.ExpandedNodes;
-        PlanningMilliseconds = result.PlanningTime.TotalMilliseconds;
-        Status = result.Succeeded
-            ? Text($"경로 계획 완료: {result.Points.Count}개 지점", $"Path planned: {result.Points.Count} points")
-            : Text($"경로 계획 실패: {result.Message}", $"Path failed: {result.Message}");
-
-        if (result.Succeeded)
-        {
-            ApplyPathAsMission(result.Points);
-        }
-
-        EngineeringSceneChanged?.Invoke(this, EventArgs.Empty);
-        SceneChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private IReadOnlyList<NavigationObstacle> BuildNavigationObstacles()
-    {
-        return _runtime.Entities
-            .Where(entity => entity.EntityType == EntityType.Obstacle && entity.PhysicsBody is not null)
-            .Select(entity => new NavigationObstacle(
-                entity.Id,
-                entity.Position.X,
-                entity.Position.Z,
-                entity.PhysicsBody!.HalfExtents.X * 2.0f,
-                entity.PhysicsBody.HalfExtents.Z * 2.0f))
-            .ToList();
-    }
-
-    private void ApplyPathAsMission(IReadOnlyList<PathPoint> points)
-    {
-        var stride = Math.Max(1, (int)MathF.Round(1.0f / Math.Max(0.25f, GridResolution)));
-        var reduced = points
-            .Where((_, index) => index == points.Count - 1 || index % stride == 0)
-            .Skip(1)
-            .Select((point, index) => new WaypointEntity($"nav-wp-{index + 1:00}", $"Path_{index + 1:00}", new Vector3(point.X, 0.05f, point.Z), index + 1, 0.75f))
-            .ToArray();
-
-        foreach (var existing in _runtime.Entities.Where(entity => entity.EntityType == EntityType.Waypoint).ToList())
-        {
-            _runtime.Entities.Remove(existing);
-            var viewModel = Entities.FirstOrDefault(item => ReferenceEquals(item.Entity, existing));
-            if (viewModel is not null)
-            {
-                Entities.Remove(viewModel);
-            }
-        }
-
-        foreach (var waypoint in reduced)
-        {
-            RegisterEntity(waypoint);
-        }
-
-        _runtime.MissionController.SetWaypoints(reduced);
-        RefreshEngineeringTelemetry();
-    }
-
-    private void ClearPath()
-    {
-        NavigationPath.Clear();
-        PathLength = 0.0f;
-        ExpandedNodes = 0;
-        PlanningMilliseconds = 0.0;
-        Status = Text("경로 지움", "Path cleared");
-        SceneChanged?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void ImportData()
-    {
-        if (string.IsNullOrWhiteSpace(DataImportPath) || !File.Exists(DataImportPath))
-        {
-            Status = Text("데이터 가져오기 실패: 파일을 찾을 수 없음", "Data import failed: file not found");
-            return;
-        }
-
-        var content = File.ReadAllText(DataImportPath);
-        var parser = SelectParser(DataImportPath, content);
-        if (parser is null)
-        {
-            Status = Text("데이터 가져오기 실패: 지원하지 않는 형식", "Data import failed: unsupported format");
-            return;
-        }
-
-        var dataSet = parser.Parse(content);
-        var mapping = _schemaDetector.RecommendMapping(dataSet);
-        var validation = _dataValidator.Validate(dataSet, mapping, [ForgeField.PositionX, ForgeField.PositionY, ForgeField.PositionZ]);
-        var capabilities = _capabilityDetector.Detect(mapping);
-        var importedObstacles = _environmentBuilder.BuildObstacles(dataSet);
-
-        DetectedFields.Clear();
-        foreach (var field in _schemaDetector.DetectFields(dataSet))
-        {
-            DetectedFields.Add(field);
-        }
-
-        DataFormat = dataSet.Format;
-        ValidationSummary = Text(
-            $"전체 {validation.TotalRecords}, 유효 {validation.ValidRecords}, 오류 {validation.InvalidRecords}",
-            $"Records {validation.TotalRecords}, Valid {validation.ValidRecords}, Invalid {validation.InvalidRecords}");
-        CapabilitySummary = capabilities.Count == 0 ? "--" : string.Join(", ", capabilities.OrderBy(item => item.ToString()));
-        foreach (var obstacle in importedObstacles)
-        {
-            AddObstacle(obstacle.Id, new Vector3(obstacle.X, 0.5f, obstacle.Z), new Vector3(obstacle.Width * 0.5f, 0.5f, obstacle.Depth * 0.5f));
-        }
-
-        if (importedObstacles.Count > 0)
-        {
-            NotifySceneChanged();
-        }
-
-        Status = importedObstacles.Count > 0
-            ? Text($"{dataSet.Format} 레코드 {dataSet.Records.Count}개 가져옴, 장애물 {importedObstacles.Count}개 추가", $"Imported {dataSet.Records.Count} {dataSet.Format} records, added {importedObstacles.Count} obstacles")
-            : Text($"{dataSet.Format} 레코드 {dataSet.Records.Count}개 가져옴", $"Imported {dataSet.Records.Count} {dataSet.Format} records");
-    }
-
-    private static IDataParser? SelectParser(string fileName, string content)
-    {
-        IDataParser[] parsers = [new CsvDataParser(), new JsonDataParser()];
-        return parsers.FirstOrDefault(parser => parser.CanParse(fileName, content));
     }
 
     private string Text(string korean, string english)
@@ -1564,8 +1692,8 @@ public sealed class MainViewModel : ViewModelBase
     private IReadOnlyList<string> WorkspaceOptions()
     {
         return SelectedLanguage == "English"
-            ? ["Physics Lab", "System Simulation", "Data Analysis"]
-            : ["물리 실험실", "시스템 시뮬레이션", "데이터 분석"];
+            ? ["Physics Lab", "Customization", "Data Import"]
+            : ["물리 실험실", "커스터마이징", "데이터 가져오기"];
     }
 
     private IReadOnlyList<string> MobilityOptions()
@@ -1587,8 +1715,8 @@ public sealed class MainViewModel : ViewModelBase
         return key switch
         {
             "PhysicsLab" => Text("물리 실험실", "Physics Lab"),
-            "DataAnalysis" => Text("데이터 분석", "Data Analysis"),
-            _ => Text("시스템 시뮬레이션", "System Simulation")
+            "DataAnalysis" => Text("데이터 가져오기", "Data Import"),
+            _ => Text("커스터마이징", "Customization")
         };
     }
 
@@ -1612,7 +1740,7 @@ public sealed class MainViewModel : ViewModelBase
         return value switch
         {
             "Physics Lab" or "물리 실험실" => "PhysicsLab",
-            "Data Analysis" or "데이터 분석" => "DataAnalysis",
+            "Data Analysis" or "데이터 분석" or "Data Import" or "데이터 가져오기" => "DataAnalysis",
             _ => "SystemSimulation"
         };
     }
@@ -1649,6 +1777,7 @@ public sealed class MainViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(SelectedObjectDisplayName));
         NotifySelectedObjectDiagnosticsChanged();
+        NotifyHudDisplaysChanged();
     }
 
     private void NotifySelectedObjectDiagnosticsChanged()
@@ -1673,14 +1802,27 @@ public sealed class MainViewModel : ViewModelBase
         OnPropertyChanged(nameof(PhysicsTimeDisplay));
     }
 
-    private string EventSeverityText(EventSeverity severity)
+    private void NotifyHudDisplaysChanged()
+    {
+        OnPropertyChanged(nameof(HudTitle));
+        OnPropertyChanged(nameof(HudTargetDisplay));
+        OnPropertyChanged(nameof(HudPositionDisplay));
+        OnPropertyChanged(nameof(HudSpeedDisplay));
+        OnPropertyChanged(nameof(HudHeadingDisplay));
+        OnPropertyChanged(nameof(HudTargetSpeedDisplay));
+        OnPropertyChanged(nameof(HudTargetHeadingDisplay));
+        OnPropertyChanged(nameof(HudMissionDisplay));
+        OnPropertyChanged(nameof(HudWaypointDisplay));
+    }
+
+    private string EventSeverityText(string severity)
     {
         return severity switch
         {
-            EventSeverity.Info => Text("정보", "Info"),
-            EventSeverity.Warning => Text("경고", "Warning"),
-            EventSeverity.Critical => Text("치명", "Critical"),
-            _ => severity.ToString()
+            "Info" => Text("정보", "Info"),
+            "Warning" => Text("경고", "Warning"),
+            "Critical" => Text("치명", "Critical"),
+            _ => severity
         };
     }
 
@@ -1701,7 +1843,7 @@ public sealed class MainViewModel : ViewModelBase
     {
         return message switch
         {
-            "Engineering scenario loaded" => Text("엔지니어링 시나리오 로드됨", message),
+            "Engineering scenario loaded" or "Customization scenario loaded" => Text("커스터마이징 시나리오 로드됨", message),
             "Mission started" => Text("미션 시작됨", message),
             "Mission reset" => Text("미션 초기화됨", message),
             "Manual emergency stop applied" => Text("수동 비상정지 적용됨", message),
@@ -1710,84 +1852,16 @@ public sealed class MainViewModel : ViewModelBase
         };
     }
 
-    private void StartMission()
-    {
-        if (_runtime.Vehicle is null)
-        {
-            LoadEngineeringScenario();
-        }
-
-        _runtime.MissionController.Start();
-        AddEvent(EventSeverity.Info, "Mission", "START", "Mission started");
-        IsRunning = true;
-        RefreshEngineeringTelemetry();
-    }
-
-    private void ResetMission()
-    {
-        _runtime.MissionController.Reset();
-        if (_runtime.Vehicle is not null)
-        {
-            _runtime.Vehicle.TargetSpeed = 0.0f;
-            _runtime.Vehicle.MotionState = MotionState.Idle;
-        }
-
-        AddEvent(EventSeverity.Info, "Mission", "RESET", "Mission reset");
-        RefreshEngineeringTelemetry();
-    }
-
-    private void ManualEmergencyStop()
-    {
-        if (_runtime.Vehicle is null)
-        {
-            return;
-        }
-
-        _runtime.VehicleController.EmergencyStop(_runtime.Vehicle);
-        _runtime.MissionController.EmergencyStop();
-        AddEvent(EventSeverity.Critical, "Vehicle", "MANUAL_ESTOP", "Manual emergency stop applied");
-        RefreshEngineeringTelemetry();
-    }
-
-    private void ToggleFault(FaultType faultType)
-    {
-        if (_runtime.Vehicle is null)
-        {
-            LoadEngineeringScenario();
-        }
-
-        if (_runtime.Vehicle is null)
-        {
-            return;
-        }
-
-        var enabled = _runtime.FaultManager.Toggle(faultType, _runtime.Vehicle, _runtime.VehicleController, _runtime.Sensor);
-        AddEvent(enabled ? EventSeverity.Warning : EventSeverity.Info, "Fault", faultType.ToString(), enabled ? $"{faultType} injected" : $"{faultType} cleared");
-        RefreshEngineeringTelemetry();
-    }
-
-    private void ClearFaults()
-    {
-        if (_runtime.Vehicle is null)
-        {
-            return;
-        }
-
-        _runtime.FaultManager.Clear(_runtime.Vehicle, _runtime.VehicleController, _runtime.Sensor);
-        AddEvent(EventSeverity.Info, "Fault", "CLEAR", "All faults cleared");
-        RefreshEngineeringTelemetry();
-    }
-
     private void RefreshDetections()
     {
         DetectionDetails.Clear();
 
-        if (_runtime.Sensor is null)
+        if (_snapshot?.Sensor is null)
         {
             return;
         }
 
-        foreach (var detection in _runtime.Sensor.Detections)
+        foreach (var detection in _snapshot.Sensor.Detections)
         {
             DetectionDetails.Add(Text(
                 $"{detection.TargetName} | {detection.TargetType} | 거리 {detection.Distance:F2} m | 상대각 {detection.RelativeBearingDegrees:F1}도",
@@ -1818,18 +1892,17 @@ public sealed class MainViewModel : ViewModelBase
         EngineeringSceneChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void AddEvent(EventSeverity severity, string source, string code, string message)
-    {
-        _eventLogService.Add(_elapsedSimulationTime, severity, source, code, message);
-        RefreshEventLog();
-    }
-
     private void RefreshEventLog()
     {
         EventLog.Clear();
-        foreach (var item in _eventLogService.Events)
+        if (_snapshot is not null)
         {
-            EventLog.Add($"{item.Timestamp,6:F2}s  {EventSeverityText(item.Severity),-8}  {EventSourceText(item.Source)}  {item.Code}  {EventMessageText(item.Message)}");
+            foreach (var item in _snapshot.Events)
+            {
+                EventLog.Add($"{item.Timestamp,6:F2}s  {EventSeverityText(item.Severity),-8}  {EventSourceText(item.Source)}  {item.Code}  {EventMessageText(item.Message)}");
+            }
+
+            return;
         }
     }
 
@@ -1837,34 +1910,41 @@ public sealed class MainViewModel : ViewModelBase
     {
         ContactDetails.Clear();
 
-        if (SelectedObject is null)
+        if (SelectedObject is null || _snapshot is null)
         {
             return;
         }
 
-        var body = SelectedObject.Body;
-        var contacts = World.Contacts
-            .Where(contact => ReferenceEquals(contact.BodyA, body) || ReferenceEquals(contact.BodyB, body))
+        var selectedId = SelectedObject.Id;
+        var contacts = _snapshot.Contacts
+            .Where(contact => contact.BodyAEntityId == selectedId || contact.BodyBEntityId == selectedId)
             .Take(8)
             .ToList();
 
         for (var i = 0; i < contacts.Count; i++)
         {
             var contact = contacts[i];
-            var other = ReferenceEquals(contact.BodyA, body) ? contact.BodyB : contact.BodyA;
+            var otherName = contact.BodyAEntityId == selectedId ? contact.BodyBName : contact.BodyAName;
             ContactDetails.Add(Text(
-                $"접촉 #{i + 1} | 상대: {other.Name} | 지점: {FormatVector(contact.Point)} | 법선: {FormatVector(contact.Normal)} | 침투: {contact.Penetration:F3} | 상대속도: {contact.RelativeVelocity.Length():F2} | 충격량: {contact.AppliedImpulse:F2}",
-                $"Contact #{i + 1} | Other: {other.Name} | Point: {FormatVector(contact.Point)} | Normal: {FormatVector(contact.Normal)} | Pen: {contact.Penetration:F3} | RelVel: {contact.RelativeVelocity.Length():F2} | Impulse: {contact.AppliedImpulse:F2}"));
+                $"접촉 #{i + 1} | 상대: {otherName} | 지점: {FormatVector(contact.Point)} | 법선: {FormatVector(contact.Normal)} | 침투: {contact.Penetration:F3} | 상대속도: {contact.RelativeVelocity.Length():F2} | 충격량: {contact.AppliedImpulse:F2}",
+                $"Contact #{i + 1} | Other: {otherName} | Point: {FormatVector(contact.Point)} | Normal: {FormatVector(contact.Normal)} | Pen: {contact.Penetration:F3} | RelVel: {contact.RelativeVelocity.Length():F2} | Impulse: {contact.AppliedImpulse:F2}"));
         }
     }
 
     private void SampleGraph()
     {
-        if (!_telemetryRecorder.TrySample(SelectedObject?.Body, _elapsedSimulationTime, World.Settings.FixedDeltaTime, out var sample))
+        var selectedState = SelectedObjectState;
+        if (selectedState is null)
         {
             return;
         }
 
+        var sample = new TelemetrySample(
+            _elapsedSimulationTime,
+            selectedState.Position.Y,
+            selectedState.LinearVelocity.Length(),
+            selectedState.AngularVelocity.Length(),
+            selectedState.IsStatic ? 0.0f : 0.5f * selectedState.Mass * selectedState.LinearVelocity.LengthSquared());
         GraphSamples.Add(sample);
 
         while (GraphSamples.Count > _telemetryRecorder.MaxSamples)
@@ -1916,4 +1996,12 @@ public sealed class MainViewModel : ViewModelBase
         return $"{value.X:F2}, {value.Y:F2}, {value.Z:F2}";
     }
 
+    private static float ToHeadingDegrees(Quaternion orientation)
+    {
+        var forward = Vector3.Transform(Vector3.UnitZ, orientation);
+        return MathF.Atan2(forward.X, forward.Z) * 180.0f / MathF.PI;
+    }
+
 }
+
+

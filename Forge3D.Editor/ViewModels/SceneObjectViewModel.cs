@@ -1,201 +1,291 @@
 using System.Numerics;
 using Forge3D.Core.Collision;
 using Forge3D.Core.Dynamics;
+using Forge3D.Contracts.States;
 
 namespace Forge3D.Editor.ViewModels;
 
 public sealed class SceneObjectViewModel : ViewModelBase
 {
-    private readonly Collider _collider;
+    private Collider? _collider;
+    private EntityStateDto _state;
 
     public SceneObjectViewModel(Collider collider)
     {
         _collider = collider;
+        _state = FromCollider(collider);
     }
 
-    public int Id => _collider.Id;
+    public SceneObjectViewModel(EntityStateDto state)
+    {
+        _state = state;
+    }
 
-    public Collider Collider => _collider;
+    public int Id => _state.Id;
 
-    public RigidBody Body => _collider.Body;
+    public Collider? Collider => _collider;
+
+    public RigidBody? Body => _collider?.Body;
 
     public string Name
     {
-        get => Body.Name;
+        get => _state.Name;
         set
         {
-            Body.Name = value;
+            if (_collider is not null)
+            {
+                _collider.Body.Name = value;
+            }
+
+            _state = _state with { Name = value };
             OnPropertyChanged();
         }
     }
 
-    public ColliderType Type => _collider.Type;
+    public string Type => _state.ColliderType;
 
     public bool IsStatic
     {
-        get => Body.IsStatic;
+        get => _state.IsStatic;
         set
         {
-            Body.IsStatic = value;
+            if (_collider is not null)
+            {
+                _collider.Body.IsStatic = value;
+            }
+
+            _state = _state with { IsStatic = value };
             Refresh();
         }
     }
 
     public float PositionX
     {
-        get => Body.Position.X;
-        set => SetPosition(new Vector3(value, Body.Position.Y, Body.Position.Z));
+        get => _state.Position.X;
+        set => SetPosition(new Vector3(value, _state.Position.Y, _state.Position.Z));
     }
 
     public float PositionY
     {
-        get => Body.Position.Y;
-        set => SetPosition(new Vector3(Body.Position.X, value, Body.Position.Z));
+        get => _state.Position.Y;
+        set => SetPosition(new Vector3(_state.Position.X, value, _state.Position.Z));
     }
 
     public float PositionZ
     {
-        get => Body.Position.Z;
-        set => SetPosition(new Vector3(Body.Position.X, Body.Position.Y, value));
+        get => _state.Position.Z;
+        set => SetPosition(new Vector3(_state.Position.X, _state.Position.Y, value));
     }
 
     public float Mass
     {
-        get => Body.Mass;
+        get => _state.Mass;
         set
         {
-            Body.Mass = MathF.Max(0.001f, value);
+            var mass = MathF.Max(0.001f, value);
+            if (_collider is not null)
+            {
+                _collider.Body.Mass = mass;
+            }
+
+            _state = _state with { Mass = mass };
             Refresh();
         }
     }
 
     public float LinearDamping
     {
-        get => Body.LinearDamping;
+        get => _state.LinearDamping;
         set
         {
-            Body.LinearDamping = Math.Clamp(value, 0.0f, 10.0f);
+            var damping = Math.Clamp(value, 0.0f, 10.0f);
+            if (_collider is not null)
+            {
+                _collider.Body.LinearDamping = damping;
+            }
+
+            _state = _state with { LinearDamping = damping };
             Refresh();
         }
     }
 
     public float AngularDamping
     {
-        get => Body.AngularDamping;
+        get => _state.AngularDamping;
         set
         {
-            Body.AngularDamping = Math.Clamp(value, 0.0f, 10.0f);
+            var damping = Math.Clamp(value, 0.0f, 10.0f);
+            if (_collider is not null)
+            {
+                _collider.Body.AngularDamping = damping;
+            }
+
+            _state = _state with { AngularDamping = damping };
             Refresh();
         }
     }
 
     public float Friction
     {
-        get => Body.Material.Friction;
+        get => _state.Friction;
         set
         {
-            Body.Material.Friction = Math.Clamp(value, 0.0f, 2.0f);
+            var friction = Math.Clamp(value, 0.0f, 2.0f);
+            if (_collider is not null)
+            {
+                _collider.Body.Material.Friction = friction;
+            }
+
+            _state = _state with { Friction = friction };
             Refresh();
         }
     }
 
     public float Restitution
     {
-        get => Body.Material.Restitution;
+        get => _state.Restitution;
         set
         {
-            Body.Material.Restitution = Math.Clamp(value, 0.0f, 1.0f);
+            var restitution = Math.Clamp(value, 0.0f, 1.0f);
+            if (_collider is not null)
+            {
+                _collider.Body.Material.Restitution = restitution;
+            }
+
+            _state = _state with { Restitution = restitution };
             Refresh();
         }
     }
 
     public float RotationX
     {
-        get => ToEulerDegrees(Body.Orientation).X;
+        get => ToEulerDegrees(_state.Orientation).X;
         set => SetRotation(value, RotationY, RotationZ);
     }
 
     public float RotationY
     {
-        get => ToEulerDegrees(Body.Orientation).Y;
+        get => ToEulerDegrees(_state.Orientation).Y;
         set => SetRotation(RotationX, value, RotationZ);
     }
 
     public float RotationZ
     {
-        get => ToEulerDegrees(Body.Orientation).Z;
+        get => ToEulerDegrees(_state.Orientation).Z;
         set => SetRotation(RotationX, RotationY, value);
     }
 
     public float LinearVelocityX
     {
-        get => Body.LinearVelocity.X;
+        get => _state.LinearVelocity.X;
         set
         {
-            Body.LinearVelocity = new Vector3(value, Body.LinearVelocity.Y, Body.LinearVelocity.Z);
+            var velocity = new Vector3(value, _state.LinearVelocity.Y, _state.LinearVelocity.Z);
+            if (_collider is not null)
+            {
+                _collider.Body.LinearVelocity = velocity;
+            }
+
+            _state = _state with { LinearVelocity = velocity };
             Refresh();
         }
     }
 
     public float LinearVelocityY
     {
-        get => Body.LinearVelocity.Y;
+        get => _state.LinearVelocity.Y;
         set
         {
-            Body.LinearVelocity = new Vector3(Body.LinearVelocity.X, value, Body.LinearVelocity.Z);
+            var velocity = new Vector3(_state.LinearVelocity.X, value, _state.LinearVelocity.Z);
+            if (_collider is not null)
+            {
+                _collider.Body.LinearVelocity = velocity;
+            }
+
+            _state = _state with { LinearVelocity = velocity };
             Refresh();
         }
     }
 
     public float LinearVelocityZ
     {
-        get => Body.LinearVelocity.Z;
+        get => _state.LinearVelocity.Z;
         set
         {
-            Body.LinearVelocity = new Vector3(Body.LinearVelocity.X, Body.LinearVelocity.Y, value);
+            var velocity = new Vector3(_state.LinearVelocity.X, _state.LinearVelocity.Y, value);
+            if (_collider is not null)
+            {
+                _collider.Body.LinearVelocity = velocity;
+            }
+
+            _state = _state with { LinearVelocity = velocity };
             Refresh();
         }
     }
 
     public float AngularVelocityX
     {
-        get => Body.AngularVelocity.X;
+        get => _state.AngularVelocity.X;
         set
         {
-            Body.AngularVelocity = new Vector3(value, Body.AngularVelocity.Y, Body.AngularVelocity.Z);
+            var velocity = new Vector3(value, _state.AngularVelocity.Y, _state.AngularVelocity.Z);
+            if (_collider is not null)
+            {
+                _collider.Body.AngularVelocity = velocity;
+            }
+
+            _state = _state with { AngularVelocity = velocity };
             Refresh();
         }
     }
 
     public float AngularVelocityY
     {
-        get => Body.AngularVelocity.Y;
+        get => _state.AngularVelocity.Y;
         set
         {
-            Body.AngularVelocity = new Vector3(Body.AngularVelocity.X, value, Body.AngularVelocity.Z);
+            var velocity = new Vector3(_state.AngularVelocity.X, value, _state.AngularVelocity.Z);
+            if (_collider is not null)
+            {
+                _collider.Body.AngularVelocity = velocity;
+            }
+
+            _state = _state with { AngularVelocity = velocity };
             Refresh();
         }
     }
 
     public float AngularVelocityZ
     {
-        get => Body.AngularVelocity.Z;
+        get => _state.AngularVelocity.Z;
         set
         {
-            Body.AngularVelocity = new Vector3(Body.AngularVelocity.X, Body.AngularVelocity.Y, value);
+            var velocity = new Vector3(_state.AngularVelocity.X, _state.AngularVelocity.Y, value);
+            if (_collider is not null)
+            {
+                _collider.Body.AngularVelocity = velocity;
+            }
+
+            _state = _state with { AngularVelocity = velocity };
             Refresh();
         }
     }
 
-    public float CurrentSpeed => Body.LinearVelocity.Length();
+    public float CurrentSpeed => _state.LinearVelocity.Length();
 
-    public float AngularSpeed => Body.AngularVelocity.Length();
+    public float AngularSpeed => _state.AngularVelocity.Length();
 
-    public float KineticEnergy => Body.IsStatic ? 0.0f : 0.5f * Body.Mass * Body.LinearVelocity.LengthSquared();
+    public float KineticEnergy => _state.IsStatic ? 0.0f : 0.5f * _state.Mass * _state.LinearVelocity.LengthSquared();
 
-    public string CenterOfMass => FormatVector(Body.Position);
+    public string CenterOfMass => FormatVector(_state.Position);
 
-    public string SleepState => Body.IsSleeping ? "Sleeping" : "Awake";
+    public string SleepState => _state.IsActive ? "Awake" : "Sleeping";
+
+    public void Update(EntityStateDto state)
+    {
+        _state = state;
+        Refresh();
+    }
 
     public void Refresh()
     {
@@ -227,7 +317,12 @@ public sealed class SceneObjectViewModel : ViewModelBase
 
     private void SetPosition(Vector3 position)
     {
-        Body.Position = position;
+        if (_collider is not null)
+        {
+            _collider.Body.Position = position;
+        }
+
+        _state = _state with { Position = position };
         Refresh();
     }
 
@@ -236,8 +331,41 @@ public sealed class SceneObjectViewModel : ViewModelBase
         var x = Quaternion.CreateFromAxisAngle(Vector3.UnitX, DegreesToRadians(xDegrees));
         var y = Quaternion.CreateFromAxisAngle(Vector3.UnitY, DegreesToRadians(yDegrees));
         var z = Quaternion.CreateFromAxisAngle(Vector3.UnitZ, DegreesToRadians(zDegrees));
-        Body.Orientation = Quaternion.Normalize(z * y * x);
+        var orientation = Quaternion.Normalize(z * y * x);
+        if (_collider is not null)
+        {
+            _collider.Body.Orientation = orientation;
+        }
+
+        _state = _state with { Orientation = orientation };
         Refresh();
+    }
+
+    private static EntityStateDto FromCollider(Collider collider)
+    {
+        var body = collider.Body;
+        var radius = collider is SphereCollider sphere ? sphere.Radius : 0.0f;
+        var halfExtents = collider is BoxCollider box ? box.HalfExtents : body.HalfExtents;
+        return new EntityStateDto(
+            collider.Id,
+            body.Name,
+            "PhysicsBody",
+            collider.Type.ToString(),
+            body.Position,
+            body.Orientation,
+            body.PreviousPose.Position,
+            body.PreviousPose.Orientation,
+            body.LinearVelocity,
+            body.AngularVelocity,
+            halfExtents,
+            radius,
+            body.IsStatic,
+            !body.IsSleeping,
+            body.Mass,
+            body.LinearDamping,
+            body.AngularDamping,
+            body.Material.Friction,
+            body.Material.Restitution);
     }
 
     private static Vector3 ToEulerDegrees(Quaternion q)

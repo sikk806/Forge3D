@@ -1,0 +1,4 @@
+id,x,y,z,width,height,depth
+goal-blocker,4.5,0,2.5,2.0,1.0,2.0
+near-goal-left,3.2,0,2.5,0.8,1.0,0.8
+near-goal-right,5.8,0,2.5,0.8,1.0,0.8

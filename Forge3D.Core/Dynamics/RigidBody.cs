@@ -15,11 +15,16 @@ public sealed class RigidBody
         Name = name;
         Transform = new Transform(position);
         Material = PhysicsMaterial.Default;
+        SnapPreviousPose();
     }
 
     public string Name { get; set; }
 
     public Transform Transform { get; set; }
+
+    public PhysicsPose PreviousPose { get; private set; }
+
+    public PhysicsPose CurrentPose => new(Position, Orientation);
 
     public Vector3 Position
     {
@@ -162,6 +167,16 @@ public sealed class RigidBody
     {
         _forceAccumulator = Vector3.Zero;
         _torqueAccumulator = Vector3.Zero;
+    }
+
+    public void CapturePreviousPose()
+    {
+        PreviousPose = CurrentPose;
+    }
+
+    public void SnapPreviousPose()
+    {
+        PreviousPose = CurrentPose;
     }
 
     private bool CanMove => !IsStatic && !IsSleeping;

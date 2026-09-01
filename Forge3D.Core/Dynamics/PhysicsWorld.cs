@@ -96,6 +96,14 @@ public sealed class PhysicsWorld
         LastStepStats = default;
     }
 
+    public void SnapBodyPoses()
+    {
+        foreach (var body in _bodies)
+        {
+            body.SnapPreviousPose();
+        }
+    }
+
     public PhysicsStepStats RefreshStats()
     {
         LastStepStats = new PhysicsStepStats(
@@ -117,6 +125,11 @@ public sealed class PhysicsWorld
         }
 
         var totalStopwatch = Stopwatch.StartNew();
+
+        foreach (var body in _bodies)
+        {
+            body.CapturePreviousPose();
+        }
 
         foreach (var body in _bodies)
         {

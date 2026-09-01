@@ -43,4 +43,26 @@ public sealed class MissionControllerTests
         Assert.Equal(0.0f, vehicle.TargetSpeed);
         Assert.Equal(1.0f, mission.Progress);
     }
+
+    [Fact]
+    public void Update_StopsAndTurnsBeforeDrivingTowardSharpNextWaypoint()
+    {
+        var mission = new MissionController
+        {
+            StopAndTurnThresholdDegrees = 20.0f,
+            HeadingAlignmentToleranceDegrees = 5.0f
+        };
+        mission.SetWaypoints([
+            new WaypointEntity("wp1", "WP1", Vector3.Zero, 1, 1.0f),
+            new WaypointEntity("wp2", "WP2", new Vector3(5.0f, 0.0f, 0.0f), 2, 1.0f)
+        ]);
+        var vehicle = new VehicleEntity("vehicle", "Vehicle", new RigidBody("Vehicle", Vector3.Zero));
+
+        mission.Start();
+        mission.Update(vehicle);
+
+        Assert.Equal("wp2", mission.CurrentWaypoint?.Id);
+        Assert.Equal(0.0f, vehicle.TargetSpeed);
+        Assert.Equal(90.0f, vehicle.TargetHeadingDegrees, precision: 1);
+    }
 }

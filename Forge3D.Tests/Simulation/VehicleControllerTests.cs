@@ -54,11 +54,32 @@ public sealed class VehicleControllerTests
         };
         var controller = new VehicleController();
 
-        controller.Update(straightVehicle);
-        controller.Update(turningVehicle);
+        for (var i = 0; i < 60; i++)
+        {
+            controller.Update(straightVehicle);
+            controller.Update(turningVehicle);
+        }
 
-        Assert.True(turningBody.ForceAccumulator.Length() < straightBody.ForceAccumulator.Length());
+        Assert.True(turningVehicle.CommandedSpeed < straightVehicle.CommandedSpeed);
         Assert.True(turningBody.TorqueAccumulator.Y > 0.0f);
+    }
+
+    [Fact]
+    public void Update_LimitsCommandedSpeedAcceleration()
+    {
+        var body = new RigidBody("Vehicle", Vector3.Zero);
+        var vehicle = new VehicleEntity("vehicle", "Vehicle", body)
+        {
+            TargetSpeed = 8.0f
+        };
+        var controller = new VehicleController
+        {
+            MaxAcceleration = 2.0f
+        };
+
+        controller.Update(vehicle, 0.5f);
+
+        Assert.Equal(1.0f, vehicle.CommandedSpeed, precision: 3);
     }
 
     [Fact]

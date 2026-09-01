@@ -87,9 +87,49 @@ public sealed class NavigationPlannerTests
     }
 
     [Fact]
+    public void PathCollisionChecker_UsesVehicleHeadingAndClearance()
+    {
+        var checker = new PathCollisionChecker();
+        var profile = new VehicleNavigationProfile { Width = 1.0f, Length = 2.0f, Clearance = 0.2f };
+
+        var blocked = checker.IsBlocked(
+            new NavigationPose(0.0f, 0.0f, 90.0f),
+            profile,
+            [new NavigationObstacle("box", 1.1f, 0.0f, 0.2f, 0.2f)]);
+
+        Assert.True(blocked);
+    }
+
+    [Fact]
+    public void GridAStarPlanner_LeavesClearanceForVehicleFootprint()
+    {
+        var request = new PathRequest
+        {
+            Start = new NavigationPose(-3.0f, 0.0f, 0.0f),
+            Goal = new NavigationPose(3.0f, 0.0f, 0.0f),
+            GridResolution = 0.5f,
+            WorldMinX = -5.0f,
+            WorldMaxX = 5.0f,
+            WorldMinZ = -5.0f,
+            WorldMaxZ = 5.0f,
+            Vehicle = new VehicleNavigationProfile { Width = 1.0f, Length = 1.7f, Clearance = 0.3f },
+            Obstacles = [new NavigationObstacle("wall", 0.0f, 0.0f, 0.8f, 2.0f)]
+        };
+
+        var result = new GridAStarPlanner().Plan(request);
+        var checker = new PathCollisionChecker();
+
+        Assert.True(result.Succeeded, result.Message);
+        Assert.DoesNotContain(result.Points, point => checker.IsBlocked(point.X, point.Z, request.Vehicle, request.Obstacles));
+    }
+
+    [Fact]
     public void PathFollower_ReturnsNextTargetAndHeading()
     {
-        var follower = new PathFollower(reachRadius: 0.25f);
+        var follower = new PathFollower(reachRadius: 0.25f)
+        {
+            LookAheadDistance = 10.0f
+        };
         var path = new[]
         {
             new PathPoint(0.0f, 0.0f),
@@ -102,5 +142,46 @@ public sealed class NavigationPlannerTests
         Assert.Equal(0.0f, target.X);
         Assert.Equal(2.0f, target.Z);
         Assert.Equal(0.0f, heading);
+    }
+
+    [Fact]
+    public void PathFollower_UsesLookAheadTarget()
+    {
+        var follower = new PathFollower(reachRadius: 0.25f)
+        {
+            LookAheadDistance = 1.0f
+        };
+        var path = new[]
+        {
+            new PathPoint(0.0f, 0.0f),
+            new PathPoint(0.0f, 2.0f),
+            new PathPoint(2.0f, 2.0f)
+        };
+
+        var found = follower.TryGetTarget(Vector3.Zero, path, out var target, out _);
+
+        Assert.True(found);
+        Assert.Equal(0.0f, target.X);
+        Assert.Equal(1.0f, target.Z);
+    }
+
+    [Fact]
+    public void PathSimplifier_RemovesCollinearIntermediatePoints()
+    {
+        var simplifier = new PathSimplifier();
+        var points = new[]
+        {
+            new PathPoint(0.0f, 0.0f),
+            new PathPoint(1.0f, 0.0f),
+            new PathPoint(2.0f, 0.0f),
+            new PathPoint(2.0f, 1.0f)
+        };
+
+        var simplified = simplifier.Simplify(points);
+
+        Assert.Equal(3, simplified.Count);
+        Assert.Equal(0.0f, simplified[0].X);
+        Assert.Equal(2.0f, simplified[1].X);
+        Assert.Equal(1.0f, simplified[2].Z);
     }
 }

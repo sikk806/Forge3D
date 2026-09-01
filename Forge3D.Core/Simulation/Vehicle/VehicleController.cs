@@ -20,11 +20,17 @@ public sealed class VehicleController
 
     public float MinimumTurnSpeedScale { get; set; } = 0.18f;
 
+    public float MaxAcceleration { get; set; } = 5.0f;
+
+    public float MaxDeceleration { get; set; } = 9.0f;
+
+    public float MaxTurnTorqueRate { get; set; } = 90.0f;
+
     public float MotorScale { get; set; } = 1.0f;
 
     public bool CommandsEnabled { get; set; } = true;
 
-    public void Update(VehicleEntity vehicle)
+    public void Update(VehicleEntity vehicle, float deltaTime = 1.0f / 60.0f)
     {
         var body = vehicle.PhysicsBody;
         if (body is null || body.IsStatic)
@@ -44,13 +50,22 @@ public sealed class VehicleController
         var targetSpeed = vehicle.MotionState == MotionState.EmergencyStop
             ? 0.0f
             : vehicle.TargetSpeed * GetTurnSpeedScale(MathF.Abs(headingError));
-        var speedError = targetSpeed - currentForwardSpeed;
+        vehicle.CommandedSpeed = MoveTowards(
+            vehicle.CommandedSpeed,
+            targetSpeed,
+            (targetSpeed >= vehicle.CommandedSpeed ? MaxAcceleration : MaxDeceleration) * MathF.Max(0.0f, deltaTime));
+
+        var speedError = vehicle.CommandedSpeed - currentForwardSpeed;
         var gain = vehicle.MotionState == MotionState.EmergencyStop ? BrakeGain : SpeedGain;
         var forceMagnitude = Math.Clamp(speedError * gain, -MaxForce, MaxForce) * MotorScale;
         body.ApplyForce(forward * forceMagnitude);
 
-        var torque = Math.Clamp(headingError * HeadingGain * MathF.PI / 180.0f, -MaxTorque, MaxTorque) * MotorScale;
-        body.ApplyTorque(Vector3.UnitY * torque);
+        var desiredTorque = Math.Clamp(headingError * HeadingGain * MathF.PI / 180.0f, -MaxTorque, MaxTorque);
+        vehicle.CommandedTurnTorque = MoveTowards(
+            vehicle.CommandedTurnTorque,
+            desiredTorque,
+            MaxTurnTorqueRate * MathF.Max(0.0f, deltaTime));
+        body.ApplyTorque(Vector3.UnitY * vehicle.CommandedTurnTorque * MotorScale);
 
         vehicle.MotionState = vehicle.MotionState == MotionState.EmergencyStop
             ? MotionState.EmergencyStop
@@ -60,12 +75,15 @@ public sealed class VehicleController
     public void Stop(VehicleEntity vehicle)
     {
         vehicle.TargetSpeed = 0.0f;
+        vehicle.CommandedSpeed = MathF.Min(vehicle.CommandedSpeed, 0.0f);
         vehicle.MotionState = MotionState.Stopping;
     }
 
     public void EmergencyStop(VehicleEntity vehicle)
     {
         vehicle.TargetSpeed = 0.0f;
+        vehicle.CommandedSpeed = 0.0f;
+        vehicle.CommandedTurnTorque = 0.0f;
         vehicle.MotionState = MotionState.EmergencyStop;
     }
 
@@ -94,5 +112,15 @@ public sealed class VehicleController
         var range = MathF.Max(1.0f, TurnSlowdownFullDegrees - TurnSlowdownStartDegrees);
         var factor = Math.Clamp((headingErrorDegrees - TurnSlowdownStartDegrees) / range, 0.0f, 1.0f);
         return 1.0f - ((1.0f - MinimumTurnSpeedScale) * factor);
+    }
+
+    private static float MoveTowards(float current, float target, float maxDelta)
+    {
+        if (MathF.Abs(target - current) <= maxDelta)
+        {
+            return target;
+        }
+
+        return current + (MathF.Sign(target - current) * maxDelta);
     }
 }

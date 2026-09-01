@@ -13,7 +13,11 @@ public sealed class VehicleEntity : SimulationEntity
 
     public float TargetSpeed { get; set; }
 
+    public float CommandedSpeed { get; set; }
+
     public float TargetHeadingDegrees { get; set; }
+
+    public float CommandedTurnTorque { get; set; }
 
     public MotionState MotionState { get; set; } = MotionState.Idle;
 
